@@ -21,6 +21,7 @@ export interface DiagnosticResult {
   gaps: string[];
   nextSteps: string[];
   recommendedProductCodes: string[];
+  metrics?: Record<string, number | string | null>;
 }
 
 export interface ValuePreviewInput {
