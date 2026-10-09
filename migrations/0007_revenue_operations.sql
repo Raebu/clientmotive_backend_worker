@@ -472,6 +472,7 @@ CREATE INDEX IF NOT EXISTS idx_facts_entity_field ON enrichment_facts(entity_typ
 CREATE INDEX IF NOT EXISTS idx_attribution_opportunity ON attribution_touches(opportunity_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_forecasts_period ON revenue_forecasts(period_start, period_end);
 CREATE INDEX IF NOT EXISTS idx_deal_risks_opportunity ON deal_risks(opportunity_id, status, severity DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_procurement_account_unique ON procurement_profiles(account_id);
 CREATE INDEX IF NOT EXISTS idx_tenders_deadline ON tender_opportunities(status, deadline);
 CREATE INDEX IF NOT EXISTS idx_billing_account_time ON billing_events(account_id, occurred_at DESC);
 CREATE INDEX IF NOT EXISTS idx_milestones_account ON delivery_milestones(account_id, status, due_at);
