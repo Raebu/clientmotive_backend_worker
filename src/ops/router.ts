@@ -51,11 +51,13 @@ import {
 } from "./lifecycle";
 import {
   buildAttribution,
+  channelUnitEconomics,
   enrichCompanyWaterfall,
   generateBattlecard,
   harvestVoiceOfCustomer,
   predictCommercialTrigger,
-  scoreEvidenceQuality
+  scoreEvidenceQuality,
+  territoryWhitespace
 } from "./intelligence";
 import {
   addCredits,
@@ -76,6 +78,7 @@ import {
   ingestEsignWebhook,
   ingestInboxWebhook
 } from "./adapters";
+import { crmDelta, syncStates, updateSyncState } from "./sync";
 
 async function parseJson(request:Request,maxBytes=150_000):Promise<any>{
   const raw=await request.text();
@@ -209,6 +212,14 @@ export async function routeOps(request:Request,env:Env):Promise<Response|null>{
   if(path==="/v1/ops/attribution" && request.method==="POST"){
     const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
     return json(await buildAttribution(env,await parseJson(request)),201);
+  }
+  if(path==="/v1/ops/attribution/channel-economics" && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json(await channelUnitEconomics(env,tenantHeaders(request).tenantId));
+  }
+  if(path==="/v1/ops/territory/whitespace" && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json(await territoryWhitespace(env,tenantHeaders(request).tenantId));
   }
   if(path==="/v1/ops/revenue/forecast" && request.method==="POST"){
     const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
@@ -394,6 +405,18 @@ export async function routeOps(request:Request,env:Env):Promise<Response|null>{
   if(path==="/v1/ops/model-evaluations" && request.method==="POST"){
     const denied=await requireOps(request,env,"write:research"); if(denied) return denied;
     return json({evaluationId:await recordModelEvaluation(env,await parseJson(request))},201);
+  }
+  if(path==="/v1/ops/crm/delta" && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json(await crmDelta(env,{tenantId:tenantHeaders(request).tenantId,since:url.searchParams.get("since"),limit:Number(url.searchParams.get("limit") || "200")}));
+  }
+  if(path==="/v1/ops/sync-state" && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    return json({syncId:await updateSyncState(env,{tenantId:tenantHeaders(request).tenantId,...await parseJson(request)})},201);
+  }
+  if(path==="/v1/ops/sync-state" && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json({states:await syncStates(env,tenantHeaders(request).tenantId)});
   }
   if(path==="/v1/ops/export" && request.method==="POST"){
     const denied=await requireOps(request,env,"*"); if(denied) return denied;
