@@ -1,6 +1,7 @@
 import type { Env } from "../types";
 import { createHumanTask } from "./governance";
 import { generateRevenueForecast, refreshDealRisks, revenueConcentration } from "./revenue";
+import { stageAutonomousProspecting } from "../commercial/outbound";
 import { addDeliveryMilestone, customerSuccessState, startOnboarding } from "./lifecycle";
 import { scoreEvidenceQuality } from "./intelligence";
 import { fulfilPaidSelfServiceOrders } from "./product";
@@ -62,7 +63,27 @@ export async function runRevenueOperationsAutomation(env:Env):Promise<Record<str
         "SELECT task_id FROM human_tasks WHERE task_type='revenue_gap' AND status='open' AND created_at>=datetime('now','start of month') LIMIT 1"
       ).first();
       if(!existing){
-        await createHumanTask(env,{taskType:"revenue_gap",entityType:"tenant",entityId:"tenant_clientmotive",title:"Revenue gap requires pipeline action",reason:"Current forecast is below the configured revenue target.",priority:"high",payload:forecast});
+        let staged: unknown[] = [];
+        try {
+          const source = await env.DB.prepare(
+            `SELECT l.market,l.offer
+             FROM opportunity_outcomes oo
+             JOIN opportunities o ON o.opportunity_id=oo.opportunity_id
+             JOIN leads l ON l.lead_id=o.lead_id
+             WHERE oo.outcome_type='won' AND l.market IS NOT NULL AND l.offer IS NOT NULL
+             ORDER BY oo.occurred_at DESC LIMIT 1`
+          ).first<{market:string;offer:string}>();
+          if (source?.market && source?.offer) {
+            const limit = Math.max(5, Math.min(20, Number(forecast.requiredQualifiedOpportunities || 5)));
+            staged = await stageAutonomousProspecting(env,{market:source.market,offer:source.offer,limit});
+          }
+        } catch {}
+        await createHumanTask(env,{
+          taskType:"revenue_gap",entityType:"tenant",entityId:"tenant_clientmotive",
+          title:"Revenue gap requires pipeline action",
+          reason:"Current forecast is below the configured revenue target. Evidence-led prospects have been staged for review where enough historical context existed.",
+          priority:"high",payload:{...forecast,stagedProspects:staged}
+        });
       }
     }
   }catch{}
