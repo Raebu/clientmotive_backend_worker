@@ -1,7 +1,13 @@
+export interface SimpleRateLimiter {
+  limit(input: { key: string }): Promise<{ success: boolean }>;
+}
+
 export interface Env {
   DB: D1Database;
   RESEARCH_QUEUE: Queue<ResearchMessage>;
   AI?: Ai;
+  EVENT_RATE_LIMITER?: SimpleRateLimiter;
+  INTAKE_RATE_LIMITER?: SimpleRateLimiter;
   ENVIRONMENT?: string;
   PUBLIC_ORIGIN?: string;
   AI_MODEL?: string;

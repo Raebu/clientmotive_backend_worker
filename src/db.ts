@@ -19,15 +19,27 @@ export interface LeadRow {
   source: string | null;
   status: string;
   research_status: string;
+  public_token_hash?: string | null;
   created_at: string;
   updated_at: string;
 }
 
-export async function createLead(env: Env, intake: LeadIntake): Promise<{ lead: LeadRow; created: boolean }> {
+export async function createLead(
+  env: Env,
+  intake: LeadIntake,
+  publicTokenHash?: string | null
+): Promise<{ lead: LeadRow; created: boolean }> {
   const existing = await env.DB.prepare(
     "SELECT * FROM leads WHERE idempotency_key = ? LIMIT 1"
   ).bind(intake.idempotencyKey).first<LeadRow>();
-  if (existing) return { lead: existing, created: false };
+  if (existing) {
+    if (publicTokenHash) {
+      await env.DB.prepare("UPDATE leads SET public_token_hash = ?, updated_at = ? WHERE lead_id = ?")
+        .bind(publicTokenHash, isoNow(), existing.lead_id).run();
+      existing.public_token_hash = publicTokenHash;
+    }
+    return { lead: existing, created: false };
+  }
 
   const leadId = id("lead");
   const now = isoNow();
@@ -38,8 +50,9 @@ export async function createLead(env: Env, intake: LeadIntake): Promise<{ lead: 
     `INSERT INTO leads (
       lead_id, idempotency_key, visitor_id, session_id, name, email, email_domain,
       company, website, domain, offer, market, problem, outcome, source_path,
-      source, utm_json, consent_json, status, research_status, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'queued', ?, ?)`
+      source, utm_json, consent_json, status, research_status, public_token_hash,
+      created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'queued', ?, ?, ?)`
   ).bind(
     leadId,
     intake.idempotencyKey,
@@ -59,6 +72,7 @@ export async function createLead(env: Env, intake: LeadIntake): Promise<{ lead: 
     intake.source || "website",
     JSON.stringify(intake.utm || {}),
     JSON.stringify(intake.consent || {}),
+    publicTokenHash || null,
     now,
     now
   ).run();
@@ -100,7 +114,7 @@ export async function upsertSession(
     `INSERT INTO visitor_sessions (
       session_id, visitor_id, started_at, last_seen_at, landing_path,
       referrer_domain, country_code, device_class, event_count
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1)
     ON CONFLICT(session_id) DO UPDATE SET
       last_seen_at = excluded.last_seen_at,
       event_count = visitor_sessions.event_count + 1`
@@ -155,23 +169,27 @@ export async function markJob(
 export async function getLeadBundle(env: Env, leadId: string): Promise<Record<string, unknown>> {
   const lead = await getLead(env, leadId);
   if (!lead) throw new Error("lead_not_found");
-  const [profile, score, dossier, competitors, buyers, channels, accounts] = await Promise.all([
+  const [profile, score, dossier, competitors, buyers, channels, accounts, actions] = await Promise.all([
     env.DB.prepare("SELECT * FROM company_profiles WHERE lead_id = ?").bind(leadId).first(),
     env.DB.prepare("SELECT * FROM lead_scores WHERE lead_id = ?").bind(leadId).first(),
     env.DB.prepare("SELECT * FROM dossiers WHERE lead_id = ?").bind(leadId).first(),
     env.DB.prepare("SELECT * FROM competitors WHERE lead_id = ? ORDER BY competitor_type, name").bind(leadId).all(),
     env.DB.prepare("SELECT * FROM buyer_roles WHERE lead_id = ? ORDER BY role_type, role").bind(leadId).all(),
     env.DB.prepare("SELECT * FROM channel_recommendations WHERE lead_id = ? ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END").bind(leadId).all(),
-    env.DB.prepare("SELECT * FROM target_accounts WHERE lead_id = ? LIMIT 50").bind(leadId).all()
+    env.DB.prepare("SELECT * FROM target_accounts WHERE lead_id = ? LIMIT 50").bind(leadId).all(),
+    env.DB.prepare("SELECT * FROM next_actions WHERE lead_id = ? ORDER BY CASE priority WHEN 'now' THEN 1 WHEN 'next' THEN 2 ELSE 3 END").bind(leadId).all()
   ]);
+  const safeLead = { ...lead } as Record<string, unknown>;
+  delete safeLead.public_token_hash;
   return {
-    lead,
+    lead: safeLead,
     profile,
     score,
     dossier,
     competitors: competitors.results,
     buyers: buyers.results,
     channels: channels.results,
-    targetAccounts: accounts.results
+    targetAccounts: accounts.results,
+    nextActions: actions.results
   };
 }
