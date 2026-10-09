@@ -159,3 +159,35 @@ export async function routeCommercialNeed(
   ).bind(suggestionId, input.leadId || null, input.accountId || null, destination.destination_code, input.needCategory, input.context, isoNow()).run();
   return { routed: true, suggestionId, destinationCode: destination.destination_code, label: destination.label, humanApprovalRequired: true };
 }
+
+
+export async function recordAccountMetric(
+  env: Env,
+  accountId: string,
+  input: { name: string; value: number; metadata?: Record<string, unknown>; occurredAt?: string }
+): Promise<string> {
+  if (!Number.isFinite(input.value)) throw new Error("invalid_metric_value");
+  const metricId = id("metric");
+  await env.DB.prepare(
+    "INSERT INTO account_metrics (metric_id,account_id,metric_name,numeric_value,metadata_json,occurred_at) VALUES (?,?,?,?,?,?)"
+  ).bind(metricId, accountId, input.name, input.value, JSON.stringify(input.metadata || {}), input.occurredAt || isoNow()).run();
+  return metricId;
+}
+
+export async function scoreHealthFromStoredMetrics(env: Env, accountId: string): Promise<Record<string, unknown>> {
+  const rows = await env.DB.prepare(
+    `SELECT metric_name,numeric_value FROM account_metrics
+     WHERE account_id=? AND occurred_at >= datetime('now','-90 days')
+     ORDER BY occurred_at DESC`
+  ).bind(accountId).all<{ metric_name: string; numeric_value: number }>();
+  const latest = new Map<string, number>();
+  for (const row of rows.results) if (!latest.has(row.metric_name)) latest.set(row.metric_name, Number(row.numeric_value));
+  return scoreClientHealth(env, accountId, {
+    delivery: latest.get("delivery"),
+    outcomes: latest.get("outcomes"),
+    engagement: latest.get("engagement"),
+    payment: latest.get("payment"),
+    outstandingDecisions: latest.get("outstanding_decisions"),
+    expansionSignals: latest.get("expansion_signals")
+  });
+}
