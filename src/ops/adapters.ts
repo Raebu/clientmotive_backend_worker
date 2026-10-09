@@ -3,6 +3,7 @@ import { hmacSha256, timingSafeEqual } from "../lib/security";
 import { ingestCommunication, upsertContact } from "./crm";
 import { recordBillingEvent, recordAgreement } from "./lifecycle";
 import { updateProviderHealth } from "./governance";
+import { updateSelfServiceOrder } from "./product";
 
 async function verifySecret(request:Request,raw:string,secret?:string):Promise<boolean>{
   if(!secret) return false;
@@ -61,8 +62,11 @@ export async function ingestBillingWebhook(env:Env,request:Request):Promise<Reco
     externalId:body.externalId || null,eventType:String(body.eventType || "unknown"),amount:body.amount===undefined?null:Number(body.amount),
     currency:body.currency || "GBP",status:body.status || null,occurredAt:body.occurredAt,metadata:body.metadata || {}
   });
+  if (body.orderId && ["payment_succeeded","invoice_paid"].includes(String(body.eventType || ""))) {
+    await updateSelfServiceOrder(env,String(body.orderId),{status:"paid",billingExternalId:body.externalId || null});
+  }
   await updateProviderHealth(env,{provider:String(body.provider || "billing"),ok:true});
-  return {billingEventId};
+  return {billingEventId,orderId:body.orderId || null};
 }
 
 export async function ingestEsignWebhook(env:Env,request:Request):Promise<Record<string,unknown>>{
