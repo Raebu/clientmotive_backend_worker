@@ -16,9 +16,17 @@ function numeric(value: unknown): number {
   if (Array.isArray(value)) return Math.min(100, value.length * 25);
   const text = String(value || "").trim();
   if (!text) return 0;
+  const rawNumber = Number(text.replace(/[^0-9.-]/g, ""));
+  if (Number.isFinite(rawNumber) && text.match(/[0-9]/)) return Math.max(0, Math.min(100, rawNumber));
   if (/^(yes|clear|defined|strong|complete|good)$/i.test(text)) return 90;
   if (/^(no|none|unknown|weak|poor)$/i.test(text)) return 15;
   return Math.min(90, 30 + text.split(/\s+/).length * 4);
+}
+
+function rawNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  const parsed = Number(String(value ?? "").replace(/[^0-9.-]/g, ""));
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function runDiagnostic(type: DiagnosticType, answers: DiagnosticAnswer[]): DiagnosticResult {
@@ -46,6 +54,31 @@ export function runDiagnostic(type: DiagnosticType, answers: DiagnosticAnswer[])
     type === "channel_fit" ? ["campaign_architecture"] :
     ["outbound_audit"];
 
+  const metrics: Record<string, number | string | null> = {};
+  if (type === "pipeline_gap") {
+    const target = rawNumber(byKey.get("target"));
+    const current = rawNumber(byKey.get("current"));
+    const conversion = rawNumber(byKey.get("conversion"));
+    if (target !== null && current !== null) {
+      metrics.targetPipeline = target;
+      metrics.currentPipeline = current;
+      metrics.pipelineGap = Math.max(0, target - current);
+      metrics.coveragePercent = target > 0 ? Math.round((current / target) * 1000) / 10 : null;
+      if (conversion !== null && conversion > 0) {
+        metrics.approximateAdditionalQualifiedOpportunitiesNeeded = Math.ceil(Math.max(0, target - current) / (conversion / 100));
+      }
+    }
+  }
+  if (type === "account_coverage") {
+    const universe = rawNumber(byKey.get("universe"));
+    const prioritised = rawNumber(byKey.get("prioritised"));
+    const contacts = rawNumber(byKey.get("contacts"));
+    if (universe !== null && universe > 0) {
+      metrics.accountPrioritisationCoveragePercent = prioritised !== null ? Math.round((prioritised / universe) * 1000) / 10 : null;
+      metrics.contactCoveragePercent = contacts !== null ? Math.round((contacts / universe) * 1000) / 10 : null;
+    }
+  }
+
   return {
     type,
     score,
@@ -59,7 +92,8 @@ export function runDiagnostic(type: DiagnosticType, answers: DiagnosticAnswer[])
     nextSteps: gaps.length
       ? gaps.map((gap) => "Clarify " + gap + " before increasing activity.")
       : ["Turn the strongest assumptions into measurable campaign hypotheses."],
-    recommendedProductCodes: products
+    recommendedProductCodes: products,
+    metrics: Object.keys(metrics).length ? metrics : undefined
   };
 }
 
