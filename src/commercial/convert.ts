@@ -89,7 +89,7 @@ async function saveDocument(
 export async function generateCommercialDocument(
   env: Env,
   input: {
-    type: "scope" | "proposal" | "campaign_architecture" | "market_entry" | "icp_sprint" | "competitive_positioning";
+    type: "scope" | "proposal" | "campaign_architecture" | "market_entry" | "icp_sprint" | "competitive_positioning" | "outbound_readiness" | "intelligence_brief";
     leadId: string;
     opportunityId?: string | null;
   }
@@ -102,6 +102,8 @@ export async function generateCommercialDocument(
     input.type === "campaign_architecture" ? "Define ICP, account selection, triggers, buyer roles, message hypotheses, channels and measurement." :
     input.type === "market_entry" ? "Assess market attractiveness, alternatives, buyer roles, routes to market, risks and a staged validation plan." :
     input.type === "icp_sprint" ? "Define ICP segments, exclusions, triggers, economic buyer, champion, users and initial target-account logic." :
+    input.type === "outbound_readiness" ? "Audit ICP clarity, buyer roles, proof, infrastructure, messaging, CRM hygiene, follow-up and measurement readiness." :
+    input.type === "intelligence_brief" ? "Produce a concise recurring commercial intelligence brief covering account signals, competitor movement, buyer changes, risks and recommended actions." :
     "Define competitive categories, positioning gaps, reasons to believe and evidence-led message territories.";
 
   const fallback: CommercialDocumentDraft = {
@@ -240,4 +242,65 @@ export async function enrollProblemNurture(
     ) VALUES (?, ?, ?, ?, 'active', ?, '[]', ?, ?, ?)`
   ).bind(enrollmentId, input.leadId || null, input.accountId || null, input.problemCategory, next, JSON.stringify(input.consent || {}), now, now).run();
   return enrollmentId;
+}
+
+
+export async function processDueNurture(env: Env, limit = 20): Promise<{ processed: number; sent: number }> {
+  const rows = await env.DB.prepare(
+    `SELECT n.*, l.email, l.name, l.company, l.problem, l.outcome
+     FROM nurture_enrollments n
+     LEFT JOIN leads l ON l.lead_id=n.lead_id
+     WHERE n.status='active' AND n.next_touch_at IS NOT NULL AND n.next_touch_at <= ?
+     ORDER BY n.next_touch_at LIMIT ?`
+  ).bind(isoNow(), Math.max(1, Math.min(50, limit))).all<any>();
+  let sent = 0;
+
+  for (const row of rows.results) {
+    const existing = JSON.parse(row.content_json || "[]") as unknown[];
+    const recommendation = await aiJson<Record<string, unknown>>(
+      env,
+      "You create useful problem-led nurture. Do not pressure the recipient, invent urgency or imply private knowledge. The content should help with the stated commercial issue whether or not they buy.",
+      `PROBLEM CATEGORY: ${row.problem_category}\nORIGINAL PROBLEM: ${row.problem || ""}\nDESIRED OUTCOME: ${row.outcome || ""}\nPREVIOUS TOUCHES: ${JSON.stringify(existing.slice(-5))}\nReturn subject, usefulPoint, suggestedResource, emailDraft, nextTouchDays. Keep emailDraft concise and educational.`,
+      {
+        subject: "A useful thought on " + row.problem_category,
+        usefulPoint: "Share one practical, evidence-led idea related to the stated problem.",
+        suggestedResource: null,
+        emailDraft: "",
+        nextTouchDays: 21
+      }
+    );
+
+    const touches = [...existing, { generatedAt: isoNow(), ...recommendation }].slice(-20);
+    const nextDays = Math.max(7, Math.min(90, Number(recommendation.nextTouchDays || 21)));
+    const nextTouch = new Date(Date.now() + nextDays * 86_400_000).toISOString();
+    let lastTouch: string | null = null;
+    const consent = JSON.parse(row.consent_json || "{}") as Record<string, unknown>;
+
+    if (consent.nurture === true && row.email && env.RESEND_API_KEY && recommendation.emailDraft) {
+      const response = await fetch("https://api.resend.com/emails", {
+        method: "POST",
+        headers: {
+          authorization: "Bearer " + env.RESEND_API_KEY,
+          "content-type": "application/json"
+        },
+        body: JSON.stringify({
+          from: env.ALERT_EMAIL_FROM || "ClientMotive <clientmotive@theraeburngroup.com>",
+          to: [row.email],
+          subject: String(recommendation.subject || "A useful ClientMotive note"),
+          text: String(recommendation.emailDraft),
+          headers: { "List-Unsubscribe": "<mailto:contact@theraeburngroup.com?subject=unsubscribe>" }
+        })
+      });
+      if (response.ok) {
+        sent += 1;
+        lastTouch = isoNow();
+      }
+    }
+
+    await env.DB.prepare(
+      "UPDATE nurture_enrollments SET content_json=?, last_touch_at=COALESCE(?,last_touch_at), next_touch_at=?, updated_at=? WHERE enrollment_id=?"
+    ).bind(JSON.stringify(touches), lastTouch, nextTouch, isoNow(), row.enrollment_id).run();
+  }
+
+  return { processed: rows.results.length, sent };
 }
