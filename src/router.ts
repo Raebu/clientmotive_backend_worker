@@ -10,6 +10,7 @@ import { createOpportunityFromLead } from "./commercial/convert";
 import { createWatchlist } from "./commercial/acquisition";
 import { routeOps } from "./ops/router";
 import { addPermission, upsertContact } from "./ops/crm";
+import { seedAttributionFromVisitor } from "./ops/intelligence";
 
 const ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -145,6 +146,14 @@ async function leadIntake(request: Request, env: Env): Promise<Response> {
       noticeVersion: leadInput.consent?.privacyNoticeVersion || null,
       metadata: { marketingConsent: leadInput.consent?.marketing === true }
     });
+    if (leadInput.visitorId) {
+      await seedAttributionFromVisitor(env, {
+        visitorId: leadInput.visitorId,
+        leadId: lead.lead_id,
+        accountId: account?.account_id || null,
+        opportunityId
+      });
+    }
     if (lead.domain) {
       await createWatchlist(env, {
         ownerType: "clientmotive",
