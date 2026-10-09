@@ -1,6 +1,27 @@
 import type { Env, SearchResult } from "../types";
 import { cfg } from "../config";
 
+async function takeSearchBudget(env: Env, workflow = "lead_research"): Promise<boolean> {
+  try {
+    const row = await env.DB.prepare(
+      "SELECT budget_id,max_search_calls,spent_search_calls,resets_at FROM workflow_budgets WHERE tenant_id='tenant_clientmotive' AND workflow=? LIMIT 1"
+    ).bind(workflow).first<any>();
+    if (!row) return true;
+    if (row.resets_at && new Date(row.resets_at).getTime() <= Date.now()) {
+      const next = new Date(); next.setUTCMonth(next.getUTCMonth() + 1, 1); next.setUTCHours(0,0,0,0);
+      await env.DB.prepare("UPDATE workflow_budgets SET spent_search_calls=0,spent_ai_calls=0,spent_cost=0,resets_at=?,updated_at=? WHERE budget_id=?")
+        .bind(next.toISOString(), new Date().toISOString(), row.budget_id).run();
+      row.spent_search_calls = 0;
+    }
+    if (row.max_search_calls !== null && Number(row.spent_search_calls || 0) >= Number(row.max_search_calls)) return false;
+    await env.DB.prepare("UPDATE workflow_budgets SET spent_search_calls=spent_search_calls+1,updated_at=? WHERE budget_id=?")
+      .bind(new Date().toISOString(), row.budget_id).run();
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 function isUnsafeHost(hostname: string): boolean {
   const host = hostname.toLowerCase();
   if (host === "localhost" || host.endsWith(".local") || host === "0.0.0.0") return true;
@@ -109,21 +130,24 @@ async function braveSearch(env: Env, query: string, maxResults: number): Promise
     }));
 }
 
-export async function searchWeb(env: Env, query: string, maxResults = 8): Promise<SearchResult[]> {
+export async function searchWeb(env: Env, query: string, maxResults = 8, workflow = "lead_research"): Promise<SearchResult[]> {
   const provider = cfg(env).searchProvider;
+  const available = (provider === "brave" && env.BRAVE_SEARCH_API_KEY) || env.TAVILY_API_KEY || env.BRAVE_SEARCH_API_KEY;
+  if (!available) return [];
+  if (!(await takeSearchBudget(env, workflow))) return [];
   if (provider === "brave" && env.BRAVE_SEARCH_API_KEY) return braveSearch(env, query, maxResults);
   if (env.TAVILY_API_KEY) return tavilySearch(env, query, maxResults);
   if (env.BRAVE_SEARCH_API_KEY) return braveSearch(env, query, maxResults);
   return [];
 }
 
-export async function searchMany(env: Env, queries: string[], maxResults = 6): Promise<Array<{ query: string; results: SearchResult[] }>> {
+export async function searchMany(env: Env, queries: string[], maxResults = 6, workflow = "lead_research"): Promise<Array<{ query: string; results: SearchResult[] }>> {
   const max = cfg(env).maxSearchesPerLead;
   const unique = [...new Set(queries.map((q) => q.trim()).filter(Boolean))].slice(0, max);
   const output: Array<{ query: string; results: SearchResult[] }> = [];
   for (const query of unique) {
     try {
-      output.push({ query, results: await searchWeb(env, query, maxResults) });
+      output.push({ query, results: await searchWeb(env, query, maxResults, workflow) });
     } catch {
       output.push({ query, results: [] });
     }

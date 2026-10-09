@@ -3,6 +3,7 @@ import { cfg } from "./config";
 import { route } from "./router";
 import { processResearchMessage } from "./services/research";
 import { runDailyCommercialAutomation } from "./commercial/automation";
+import { runRevenueOperationsAutomation } from "./ops/automation";
 
 async function cleanup(env: Env): Promise<void> {
   const days = cfg(env).retentionDays;
@@ -54,6 +55,12 @@ export default {
       console.log("commercial_automation_complete", result);
     } catch (error) {
       console.error("commercial_automation_failed", error);
+    }
+    try {
+      const result = await runRevenueOperationsAutomation(env);
+      console.log("revenue_operations_automation_complete", result);
+    } catch (error) {
+      console.error("revenue_operations_automation_failed", error);
     }
   }
 };

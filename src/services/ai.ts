@@ -1,6 +1,34 @@
 import type { Env } from "../types";
 import { cfg } from "../config";
 
+function workflowFor(system: string): string {
+  const value = system.toLowerCase();
+  if (value.includes("editorial") || value.includes("newsletter") || value.includes("content")) return "content_intelligence";
+  if (value.includes("account research") || value.includes("target account") || value.includes("prospecting")) return "autonomous_prospecting";
+  return "lead_research";
+}
+
+async function takeAiBudget(env: Env, workflow: string): Promise<boolean> {
+  try {
+    const row = await env.DB.prepare(
+      "SELECT budget_id,max_ai_calls,spent_ai_calls,resets_at FROM workflow_budgets WHERE tenant_id='tenant_clientmotive' AND workflow=? LIMIT 1"
+    ).bind(workflow).first<any>();
+    if (!row) return true;
+    if (row.resets_at && new Date(row.resets_at).getTime() <= Date.now()) {
+      const next = new Date(); next.setUTCMonth(next.getUTCMonth() + 1, 1); next.setUTCHours(0,0,0,0);
+      await env.DB.prepare("UPDATE workflow_budgets SET spent_search_calls=0,spent_ai_calls=0,spent_cost=0,resets_at=?,updated_at=? WHERE budget_id=?")
+        .bind(next.toISOString(), new Date().toISOString(), row.budget_id).run();
+      row.spent_ai_calls = 0;
+    }
+    if (row.max_ai_calls !== null && Number(row.spent_ai_calls || 0) >= Number(row.max_ai_calls)) return false;
+    await env.DB.prepare("UPDATE workflow_budgets SET spent_ai_calls=spent_ai_calls+1,updated_at=? WHERE budget_id=?")
+      .bind(new Date().toISOString(), row.budget_id).run();
+    return true;
+  } catch {
+    return true;
+  }
+}
+
 function extractJson(text: string): unknown {
   const trimmed = text.trim();
   try { return JSON.parse(trimmed); } catch {}
@@ -29,9 +57,14 @@ export async function aiJson<T>(
   maxTokens = 1400
 ): Promise<T> {
   if (!env.AI) return fallback;
+  const workflow = workflowFor(system);
+  if (!(await takeAiBudget(env, workflow))) return fallback;
   try {
     const ai = env.AI as any;
-    const result = await ai.run(cfg(env).aiModel, {
+    const config = cfg(env);
+    const complexity = prompt.length + system.length + maxTokens * 4;
+    const model = complexity >= 18_000 ? config.aiStrongModel : config.aiModel;
+    const result = await ai.run(model, {
       messages: [
         {
           role: "system",

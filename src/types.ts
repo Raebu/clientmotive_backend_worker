@@ -11,6 +11,7 @@ export interface Env {
   ENVIRONMENT?: string;
   PUBLIC_ORIGIN?: string;
   AI_MODEL?: string;
+  AI_STRONG_MODEL?: string;
   SEARCH_PROVIDER?: string;
   MAX_SEARCHES_PER_LEAD?: string;
   MAX_PAGES_PER_COMPANY?: string;
@@ -25,6 +26,19 @@ export interface Env {
   ALERT_EMAIL_FROM?: string;
   SLACK_WEBHOOK_URL?: string;
   HUBSPOT_ACCESS_TOKEN?: string;
+  INTEGRATION_SHARED_SECRET?: string;
+  CRM_WEBHOOK_SECRET?: string;
+  INBOX_WEBHOOK_SECRET?: string;
+  BILLING_WEBHOOK_SECRET?: string;
+  ESIGN_WEBHOOK_SECRET?: string;
+  ENRICHMENT_API_URL?: string;
+  ENRICHMENT_API_KEY?: string;
+  EMAIL_VERIFICATION_API_URL?: string;
+  EMAIL_VERIFICATION_API_KEY?: string;
+  COMPANIES_HOUSE_API_KEY?: string;
+  BILLING_PROVIDER?: string;
+  CRM_PROVIDER?: string;
+  ESIGN_PROVIDER?: string;
 }
 
 export type VisitorStage =

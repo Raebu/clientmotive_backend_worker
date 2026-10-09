@@ -11,6 +11,7 @@ export function cfg(env: Env) {
     environment: env.ENVIRONMENT || "development",
     publicOrigin: env.PUBLIC_ORIGIN || "https://www.clientmotive.com",
     aiModel: env.AI_MODEL || "@cf/zai-org/glm-4.7-flash",
+    aiStrongModel: env.AI_STRONG_MODEL || env.AI_MODEL || "@cf/zai-org/glm-4.7-flash",
     searchProvider: (env.SEARCH_PROVIDER || "tavily").toLowerCase(),
     maxSearchesPerLead: intEnv(env.MAX_SEARCHES_PER_LEAD, 12, 1, 40),
     maxPagesPerCompany: intEnv(env.MAX_PAGES_PER_COMPANY, 8, 1, 20),

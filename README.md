@@ -4,6 +4,15 @@ A free-first Cloudflare backend that turns ClientMotive website intent and growt
 
 ## What it does
 
+The current backend is now split into three layers:
+- **Revenue Intelligence** — visitor intent, research, competitors, channels, buyers, scoring and dossiers
+- **Commercial OS** — account discovery, watchlists, outbound staging, opportunity conversion, subscriptions, referrals and learning
+- **Revenue Operations** — unified contacts/communications, CRM sync contracts, consent/suppression, attribution, forecasting, margin/capacity, deal risk, procurement/tenders, billing/e-sign hooks, onboarding/delivery, multi-tenancy/RBAC, human approvals, provenance, AI evaluation, budgets and exports
+
+See `docs/REVENUE_OPERATIONS.md` for the full implementation matrix.
+
+## What it does
+
 Before a visitor submits:
 - records small first-party intent events
 - classifies the journey as discovering → exploring → evaluating → high intent → brief started
@@ -91,7 +100,8 @@ See `docs/WEBSITE_INTEGRATION.md` for payloads and signing.
    - `RESEND_API_KEY`
    - `ALERT_EMAIL_TO`
    - `SLACK_WEBHOOK_URL`
-9. Deploy:
+9. Optional integration secrets can be added for inbox, CRM, billing and e-sign adapters. See `.dev.vars.example`.
+10. Deploy:
    `npx wrangler deploy`
 
 Do not commit `wrangler.jsonc` or `.dev.vars`; both are ignored.
@@ -137,3 +147,4 @@ See:
 - `docs/COST_MODEL.md`
 - `docs/PRIVACY_AND_ETHICS.md`
 - `docs/ROADMAP.md`
+- `docs/REVENUE_OPERATIONS.md`

@@ -8,6 +8,9 @@ import { startResearch } from "./services/research";
 import { routeCommercial } from "./commercial/router";
 import { createOpportunityFromLead } from "./commercial/convert";
 import { createWatchlist } from "./commercial/acquisition";
+import { routeOps } from "./ops/router";
+import { addPermission, upsertContact } from "./ops/crm";
+import { seedAttributionFromVisitor } from "./ops/intelligence";
 
 const ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -124,6 +127,33 @@ async function leadIntake(request: Request, env: Env): Promise<Response> {
   }
   if (created) {
     opportunityId = await createOpportunityFromLead(env, lead.lead_id);
+    const account = await env.DB.prepare("SELECT account_id FROM commercial_accounts WHERE lead_id=? LIMIT 1").bind(lead.lead_id).first<{ account_id: string }>();
+    const contactId = await upsertContact(env, {
+      accountId: account?.account_id || null,
+      leadId: lead.lead_id,
+      fullName: lead.name,
+      email: lead.email,
+      source: "growth_brief",
+      confidence: 100
+    });
+    await addPermission(env, {
+      contactId,
+      email: lead.email,
+      channel: "email",
+      purpose: "respond_to_enquiry",
+      status: "allowed",
+      source: "growth_brief",
+      noticeVersion: leadInput.consent?.privacyNoticeVersion || null,
+      metadata: { marketingConsent: leadInput.consent?.marketing === true }
+    });
+    if (leadInput.visitorId) {
+      await seedAttributionFromVisitor(env, {
+        visitorId: leadInput.visitorId,
+        leadId: lead.lead_id,
+        accountId: account?.account_id || null,
+        opportunityId
+      });
+    }
     if (lead.domain) {
       await createWatchlist(env, {
         ownerType: "clientmotive",
@@ -257,6 +287,53 @@ export async function route(request: Request, env: Env): Promise<Response> {
       crossBusinessRouting: true,
       knowledgeGraph: true,
       whiteLabelApi: true,
+      unifiedCommercialInbox: true,
+      contactBuyingCommittee: true,
+      crmSyncAdapters: true,
+      suppressionAndPermissions: true,
+      deliverabilityIntelligence: true,
+      enrichmentProvenance: true,
+      contradictionDetection: true,
+      revenueAttribution: true,
+      revenueForecasting: true,
+      revenueGapAutopilot: true,
+      marginIntelligence: true,
+      capacityAwareSelling: true,
+      negativeIcp: true,
+      lookalikeLearning: true,
+      dealRisk: true,
+      multiThreading: true,
+      procurementIntelligence: true,
+      tenderDiscovery: true,
+      conversationIntelligence: true,
+      voiceOfCustomer: true,
+      competitiveBattlecards: true,
+      offerPerformance: true,
+      dynamicPackaging: true,
+      billingIntegration: true,
+      esignIntegration: true,
+      onboarding: true,
+      timeToValue: true,
+      deliveryQuality: true,
+      customerSuccessPlaybooks: true,
+      churnLearning: true,
+      revenueConcentration: true,
+      partnerEconomics: true,
+      partnerPortal: true,
+      selfServiceOrders: true,
+      creditsAndUsage: true,
+      multiTenant: true,
+      rbac: true,
+      humanWorkQueue: true,
+      provenanceAndConfidence: true,
+      researchFreshness: true,
+      aiEvaluation: true,
+      workflowBudgets: true,
+      modelRouting: true,
+      failureDashboard: true,
+      dataExport: true,
+      decisionAudit: true,
+      explainability: true,
       searchProvider: env.TAVILY_API_KEY ? "tavily" : env.BRAVE_SEARCH_API_KEY ? "brave" : null,
       aiEnabled: Boolean(env.AI)
     });
@@ -277,6 +354,9 @@ export async function route(request: Request, env: Env): Promise<Response> {
 
   const commercial = await routeCommercial(request, env);
   if (commercial) return commercial;
+
+  const ops = await routeOps(request, env);
+  if (ops) return ops;
 
   return error("Not found.", 404, "not_found");
 }
