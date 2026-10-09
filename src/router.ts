@@ -78,7 +78,7 @@ async function publicEvents(request: Request, env: Env): Promise<Response> {
     if (!event.path.startsWith("/") || event.path.length > 300) return error("Invalid path.");
     if (!/^[a-z0-9_:-]{2,60}$/i.test(event.eventType || "")) return error("Invalid event type.");
   }
-  await recordIntentEvents(env, events, request.cf);
+  await recordIntentEvents(env, events, { country: (request.cf as any)?.country });
   return json({ ok: true, accepted: events.length }, 202, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
 }
 
