@@ -1,8 +1,9 @@
 import type { Env } from "../types";
 import { createHumanTask } from "./governance";
 import { generateRevenueForecast, refreshDealRisks, revenueConcentration } from "./revenue";
-import { customerSuccessState } from "./lifecycle";
+import { addDeliveryMilestone, customerSuccessState, startOnboarding } from "./lifecycle";
 import { scoreEvidenceQuality } from "./intelligence";
+import { fulfilPaidSelfServiceOrders } from "./product";
 
 export async function runRevenueOperationsAutomation(env:Env):Promise<Record<string,unknown>>{
   const openOpps=await env.DB.prepare(
@@ -57,6 +58,24 @@ export async function runRevenueOperationsAutomation(env:Env):Promise<Record<str
     }
   }catch{}
 
+  let autoOnboarded=0;
+  const ready=await env.DB.prepare(
+    `SELECT DISTINCT a.account_id,o.opportunity_id
+     FROM commercial_accounts a
+     JOIN opportunities o ON o.account_id=a.account_id
+     WHERE EXISTS (SELECT 1 FROM agreements ag WHERE ag.account_id=a.account_id AND ag.status IN ('signed','active'))
+       AND EXISTS (SELECT 1 FROM billing_events be WHERE be.account_id=a.account_id AND be.event_type IN ('payment_succeeded','invoice_paid'))
+       AND NOT EXISTS (SELECT 1 FROM onboarding_plans op WHERE op.account_id=a.account_id AND op.status IN ('planned','active','complete'))
+     LIMIT 10`
+  ).all<{account_id:string;opportunity_id:string}>();
+  for(const row of ready.results){
+    const onboardingId=await startOnboarding(env,{accountId:row.account_id,opportunityId:row.opportunity_id});
+    await addDeliveryMilestone(env,{accountId:row.account_id,opportunityId:row.opportunity_id,milestoneType:"research",title:"First useful research delivered"});
+    await addDeliveryMilestone(env,{accountId:row.account_id,opportunityId:row.opportunity_id,milestoneType:"campaign_live",title:"First agreed commercial motion live"});
+    await createHumanTask(env,{taskType:"onboarding_review",entityType:"account",entityId:row.account_id,title:"Review automatically created onboarding plan",reason:"Signed agreement and realised payment were detected.",priority:"normal",payload:{onboardingId}});
+    autoOnboarded+=1;
+  }
+  const selfService=await fulfilPaidSelfServiceOrders(env,10);
   const concentration=await revenueConcentration(env);
-  return {openOpportunitiesReviewed:openOpps.results.length,risksDetected:riskCount,customerSuccessAlerts:successAlerts,forecast,revenueConcentration:concentration};
+  return {openOpportunitiesReviewed:openOpps.results.length,risksDetected:riskCount,customerSuccessAlerts:successAlerts,forecast,autoOnboarded,selfService,revenueConcentration:concentration};
 }
