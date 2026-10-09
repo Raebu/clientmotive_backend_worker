@@ -15,6 +15,11 @@ export async function recordOutcome(
     await env.DB.prepare(
       "UPDATE opportunities SET stage = ?, value_estimate = COALESCE(?, value_estimate), probability = ?, last_activity_at = ?, updated_at = ? WHERE opportunity_id = ?"
     ).bind(stage, input.value || null, stage === "won" ? 100 : stage === "lost" ? 0 : 70, isoNow(), isoNow(), input.opportunityId).run();
+    if (stage === "won") {
+      await env.DB.prepare(
+        "UPDATE commercial_accounts SET lifecycle_stage='customer',updated_at=? WHERE account_id=(SELECT account_id FROM opportunities WHERE opportunity_id=?)"
+      ).bind(isoNow(),input.opportunityId).run();
+    }
   }
   return outcomeId;
 }
