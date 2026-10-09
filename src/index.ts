@@ -2,6 +2,7 @@ import type { Env, ResearchMessage } from "./types";
 import { cfg } from "./config";
 import { route } from "./router";
 import { processResearchMessage } from "./services/research";
+import { runDailyCommercialAutomation } from "./commercial/automation";
 
 async function cleanup(env: Env): Promise<void> {
   const days = cfg(env).retentionDays;
@@ -47,6 +48,12 @@ export default {
       await cleanup(env);
     } catch (error) {
       console.error("retention_cleanup_failed", error);
+    }
+    try {
+      const result = await runDailyCommercialAutomation(env);
+      console.log("commercial_automation_complete", result);
+    } catch (error) {
+      console.error("commercial_automation_failed", error);
     }
   }
 };
