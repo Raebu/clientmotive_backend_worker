@@ -23,6 +23,24 @@ export async function enrichCompanyWaterfall(env:Env,input:{accountId:string;dom
     facts.push("web_search");
   }
 
+  let companiesHouse:unknown=null;
+  if(env.COMPANIES_HOUSE_API_KEY && input.companyName){
+    try{
+      const url=new URL("https://api.company-information.service.gov.uk/search/companies");
+      url.searchParams.set("q",input.companyName);
+      url.searchParams.set("items_per_page","5");
+      const response=await fetch(url,{
+        headers:{authorization:"Basic "+btoa(env.COMPANIES_HOUSE_API_KEY+":"),accept:"application/json"},
+        signal:AbortSignal.timeout(8000)
+      });
+      if(response.ok){
+        companiesHouse=await response.json();
+        await addEnrichmentFact(env,{entityType:"account",entityId:input.accountId,fieldName:"companies_house_search",value:companiesHouse,sourceName:"companies_house",sourceUrl:url.toString(),confidence:90,ttlDays:30});
+        facts.push("companies_house");
+      }
+    }catch{}
+  }
+
   let external:unknown=null;
   if(env.ENRICHMENT_API_URL && env.ENRICHMENT_API_KEY && domain){
     try{
@@ -36,7 +54,7 @@ export async function enrichCompanyWaterfall(env:Env,input:{accountId:string;dom
       }
     }catch{}
   }
-  return {accountId:input.accountId,sourcesUsed:facts,externalProviderConfigured:Boolean(env.ENRICHMENT_API_URL && env.ENRICHMENT_API_KEY),external};
+  return {accountId:input.accountId,sourcesUsed:facts,companiesHouse,externalProviderConfigured:Boolean(env.ENRICHMENT_API_URL && env.ENRICHMENT_API_KEY),external};
 }
 
 export async function buildAttribution(env:Env,input:{tenantId?:string;opportunityId:string;model?:"first_touch"|"last_touch"|"linear"|"position_based"}):Promise<Record<string,unknown>>{
@@ -193,4 +211,101 @@ export async function scoreEvidenceQuality(env:Env,input:{tenantId?:string;entit
       overall_confidence=excluded.overall_confidence,details_json=excluded.details_json,scored_at=excluded.scored_at`
   ).bind(id("quality"),tenantId,input.entityType,input.entityId,input.evidenceType,freshness,sourceQuality,corroboration,contradictionCount,overall,JSON.stringify({factCount:facts.results.length,distinctSources}),isoNow()).run();
   return result;
+}
+
+
+export async function seedAttributionFromVisitor(
+  env:Env,
+  input:{visitorId:string;leadId:string;accountId?:string|null;opportunityId?:string|null;tenantId?:string}
+):Promise<number>{
+  const tenantId=input.tenantId || "tenant_clientmotive";
+  const events=await env.DB.prepare(
+    `SELECT event_type,path,properties_json,occurred_at FROM visitor_events
+     WHERE visitor_id=? ORDER BY occurred_at ASC LIMIT 200`
+  ).bind(input.visitorId).all<any>();
+  let created=0;
+  for(const event of events.results){
+    const exists=await env.DB.prepare(
+      `SELECT touch_id FROM attribution_touches
+       WHERE tenant_id=? AND visitor_id=? AND lead_id=? AND touch_type=? AND path=? AND occurred_at=? LIMIT 1`
+    ).bind(tenantId,input.visitorId,input.leadId,event.event_type,event.path,event.occurred_at).first();
+    if(exists) continue;
+    const props=JSON.parse(event.properties_json || "{}") as Record<string,unknown>;
+    await env.DB.prepare(
+      `INSERT INTO attribution_touches (
+        touch_id,tenant_id,visitor_id,lead_id,account_id,opportunity_id,touch_type,source,campaign,content,path,monetary_cost,occurred_at,metadata_json
+      ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+    ).bind(
+      id("touch"),tenantId,input.visitorId,input.leadId,input.accountId || null,input.opportunityId || null,
+      event.event_type,String(props.source || "website"),props.campaign?String(props.campaign):null,props.content?String(props.content):null,
+      event.path,Number(props.cost || 0),event.occurred_at,JSON.stringify(props)
+    ).run();
+    created+=1;
+  }
+  return created;
+}
+
+export async function channelUnitEconomics(env:Env,tenantId="tenant_clientmotive"):Promise<Record<string,unknown>>{
+  const touches=await env.DB.prepare(
+    `SELECT source,
+      COUNT(DISTINCT opportunity_id) AS opportunities,
+      COALESCE(SUM(monetary_cost),0) AS cost
+     FROM attribution_touches
+     WHERE tenant_id=? AND opportunity_id IS NOT NULL
+     GROUP BY source`
+  ).bind(tenantId).all<any>();
+  const out=[];
+  for(const row of touches.results){
+    const oppIds=await env.DB.prepare(
+      "SELECT DISTINCT opportunity_id FROM attribution_touches WHERE tenant_id=? AND source=? AND opportunity_id IS NOT NULL"
+    ).bind(tenantId,row.source).all<{opportunity_id:string}>();
+    const ids=oppIds.results.map((r)=>r.opportunity_id);
+    let revenue=0,wins=0,meetings=0;
+    if(ids.length){
+      const placeholders=ids.map(()=>"?").join(",");
+      const stats=await env.DB.prepare(
+        `SELECT
+         COALESCE(SUM(CASE WHEN outcome_type='won' THEN value ELSE 0 END),0) AS revenue,
+         SUM(CASE WHEN outcome_type='won' THEN 1 ELSE 0 END) AS wins,
+         SUM(CASE WHEN outcome_type='meeting' THEN 1 ELSE 0 END) AS meetings
+         FROM opportunity_outcomes WHERE opportunity_id IN (${placeholders})`
+      ).bind(...ids).first<any>();
+      revenue=Number(stats?.revenue || 0);wins=Number(stats?.wins || 0);meetings=Number(stats?.meetings || 0);
+    }
+    const cost=Number(row.cost || 0);
+    out.push({
+      source:row.source || "unknown",
+      opportunities:Number(row.opportunities || 0),
+      meetings,wins,revenue,cost,
+      costPerOpportunity:Number(row.opportunities || 0)>0?Math.round(cost/Number(row.opportunities)*100)/100:null,
+      costPerWin:wins>0?Math.round(cost/wins*100)/100:null,
+      revenueToCost:cost>0?Math.round(revenue/cost*100)/100:null
+    });
+  }
+  return {channels:out.sort((a,b)=>b.revenue-a.revenue)};
+}
+
+export async function territoryWhitespace(env:Env,tenantId="tenant_clientmotive"):Promise<Record<string,unknown>>{
+  const rows=await env.DB.prepare(
+    `SELECT a.segment,
+      COUNT(DISTINCT a.account_id) AS known_accounts,
+      COUNT(DISTINCT CASE WHEN oo.outcome_type='won' THEN a.account_id END) AS won_accounts,
+      COALESCE(SUM(CASE WHEN oo.outcome_type='won' THEN oo.value ELSE 0 END),0) AS won_value,
+      COUNT(DISTINCT s.signal_id) AS recent_signals
+     FROM commercial_accounts a
+     LEFT JOIN opportunities o ON o.account_id=a.account_id
+     LEFT JOIN opportunity_outcomes oo ON oo.opportunity_id=o.opportunity_id
+     LEFT JOIN commercial_signals s ON s.account_id=a.account_id AND s.captured_at>=datetime('now','-60 days')
+     WHERE a.tenant_id=? AND a.segment IS NOT NULL
+     GROUP BY a.segment`
+  ).bind(tenantId).all<any>();
+  return {
+    segments:rows.results.map((row)=>{
+      const known=Number(row.known_accounts || 0),won=Number(row.won_accounts || 0),signals=Number(row.recent_signals || 0);
+      const penetration=known>0?won/known:0;
+      const whitespaceScore=Math.max(0,Math.min(100,Math.round((1-penetration)*55+Math.min(30,signals*3)+Math.min(15,known/2))));
+      return {...row,penetrationPercent:Math.round(penetration*1000)/10,whitespaceScore};
+    }).sort((a,b)=>b.whitespaceScore-a.whitespaceScore),
+    note:"Whitespace is a prioritisation heuristic based on known coverage, wins and recent signals; it is not a total-addressable-market estimate."
+  };
 }
