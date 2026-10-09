@@ -139,14 +139,15 @@ function signalTypeFor(text: string): string {
   return "market_change";
 }
 
-export async function scanWatchlist(env: Env, watchlistId: string): Promise<{ found: number }> {
+export async function scanWatchlist(env: Env, watchlistId: string): Promise<{ found: number; signalIds: string[] }> {
   const watch = await env.DB.prepare("SELECT * FROM watchlists WHERE watchlist_id = ? LIMIT 1")
     .bind(watchlistId).first<any>();
-  if (!watch || watch.status !== "active") return { found: 0 };
+  if (!watch || watch.status !== "active") return { found: 0, signalIds: [] };
   const requested = JSON.parse(watch.signal_types_json || "[]") as string[];
   const query = [watch.subject_value, ...requested.slice(0, 5)].join(" ");
   const results = await searchWeb(env, query, 8);
   let found = 0;
+  const signalIds: string[] = [];
 
   for (const result of results) {
     const type = signalTypeFor(result.title + " " + result.snippet);
@@ -164,7 +165,7 @@ export async function scanWatchlist(env: Env, watchlistId: string): Promise<{ fo
         accountId = account?.account_id || null;
       }
     }
-    await addSignal(env, {
+    const signalId = await addSignal(env, {
       accountId,
       signalType: type,
       title: result.title || watch.subject_value,
@@ -173,13 +174,63 @@ export async function scanWatchlist(env: Env, watchlistId: string): Promise<{ fo
       confidence: typeof result.score === "number" ? Math.round(result.score * 100) : 60,
       metadata: { watchlistId, subjectType: watch.subject_type }
     });
+    signalIds.push(signalId);
     found += 1;
   }
 
   await env.DB.prepare(
     "UPDATE watchlists SET last_checked_at = ?, next_check_at = ?, updated_at = ? WHERE watchlist_id = ?"
   ).bind(isoNow(), nextCheck(watch.cadence), isoNow(), watchlistId).run();
-  return { found };
+
+  if (signalIds.length && watch.owner_type === "prospect" && watch.owner_id) {
+    const consent = JSON.parse(watch.consent_json || "{}") as Record<string, unknown>;
+    if (consent.accountWatch === true && env.RESEND_API_KEY) {
+      const lead = await env.DB.prepare("SELECT email,name FROM leads WHERE lead_id=? LIMIT 1")
+        .bind(watch.owner_id).first<{ email: string; name: string }>();
+      if (lead?.email) {
+        const rows = await env.DB.prepare(
+          `SELECT title,detail,source_url FROM commercial_signals
+           WHERE signal_id IN (${signalIds.map(() => "?").join(",")})`
+        ).bind(...signalIds).all<any>();
+        const text = [
+          "ClientMotive account watch",
+          "",
+          "We found new public information related to: " + watch.subject_value,
+          "",
+          ...rows.results.flatMap((row) => [
+            row.title,
+            row.detail,
+            row.source_url || "",
+            ""
+          ]),
+          "You are receiving this because you opted into this account watch."
+        ].join("\n");
+        const response = await fetch("https://api.resend.com/emails", {
+          method: "POST",
+          headers: {
+            authorization: "Bearer " + env.RESEND_API_KEY,
+            "content-type": "application/json"
+          },
+          body: JSON.stringify({
+            from: env.ALERT_EMAIL_FROM || "ClientMotive Signals <clientmotive@theraeburngroup.com>",
+            to: [lead.email],
+            subject: "New signal from your ClientMotive account watch",
+            text
+          })
+        });
+        await env.DB.prepare(
+          "INSERT INTO watch_notifications (notification_id,watchlist_id,recipient,signal_ids_json,status,provider_id,error,sent_at,created_at) VALUES (?,?,?,?,?,?,?,?,?)"
+        ).bind(
+          id("wnote"), watchlistId, lead.email, JSON.stringify(signalIds),
+          response.ok ? "sent" : "failed", null,
+          response.ok ? null : "resend_" + response.status,
+          response.ok ? isoNow() : null,
+          isoNow()
+        ).run();
+      }
+    }
+  }
+  return { found, signalIds };
 }
 
 export async function scanDueWatchlists(env: Env, limit = 5): Promise<{ scanned: number; signals: number }> {
