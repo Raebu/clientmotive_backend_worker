@@ -60,7 +60,7 @@ export function ctaFor(stage: VisitorStage, lastPath = "/"): IntentContext["reco
 export async function recordIntentEvents(
   env: Env,
   events: IntentEvent[],
-  cf?: IncomingRequestCfProperties
+  cf?: { country?: unknown }
 ): Promise<void> {
   if (events.length === 0 || events.length > 25) throw new Error("invalid_event_batch");
 
