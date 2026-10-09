@@ -131,8 +131,10 @@ async function braveSearch(env: Env, query: string, maxResults: number): Promise
 }
 
 export async function searchWeb(env: Env, query: string, maxResults = 8, workflow = "lead_research"): Promise<SearchResult[]> {
-  if (!(await takeSearchBudget(env, workflow))) return [];
   const provider = cfg(env).searchProvider;
+  const available = (provider === "brave" && env.BRAVE_SEARCH_API_KEY) || env.TAVILY_API_KEY || env.BRAVE_SEARCH_API_KEY;
+  if (!available) return [];
+  if (!(await takeSearchBudget(env, workflow))) return [];
   if (provider === "brave" && env.BRAVE_SEARCH_API_KEY) return braveSearch(env, query, maxResults);
   if (env.TAVILY_API_KEY) return tavilySearch(env, query, maxResults);
   if (env.BRAVE_SEARCH_API_KEY) return braveSearch(env, query, maxResults);
