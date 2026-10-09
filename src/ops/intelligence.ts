@@ -125,9 +125,11 @@ export async function generateBattlecard(env:Env,input:{competitorId:string;acco
   const competitor=await env.DB.prepare("SELECT * FROM competitors WHERE competitor_id=?").bind(input.competitorId).first<any>();
   if(!competitor) throw new Error("competitor_not_found");
   const sources=JSON.parse(competitor.source_urls_json || "[]") as string[];
-  const evidence=await env.DB.prepare(
-    "SELECT source_url,source_title,snippet FROM research_evidence WHERE lead_id=? AND source_url IN ("+sources.map(()=>"?").join(",")+") LIMIT 30"
-  ).bind(competitor.lead_id,...sources).all<any>().catch(()=>({results:[]} as any));
+  const evidence=sources.length
+    ? await env.DB.prepare(
+        "SELECT source_url,source_title,snippet FROM research_evidence WHERE lead_id=? AND source_url IN ("+sources.map(()=>"?").join(",")+") LIMIT 30"
+      ).bind(competitor.lead_id,...sources).all<any>().catch(()=>({results:[]} as any))
+    : ({results:[]} as any);
   const fallback={
     competitor:competitor.name,
     whereTheyMayBeStronger:[],
