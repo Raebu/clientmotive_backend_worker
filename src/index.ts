@@ -30,10 +30,10 @@ export default {
     }
   },
 
-  async queue(batch: MessageBatch<ResearchMessage>, env: Env): Promise<void> {
+  async queue(batch: MessageBatch<unknown>, env: Env): Promise<void> {
     for (const message of batch.messages) {
       try {
-        await processResearchMessage(env, message.body);
+        await processResearchMessage(env, message.body as ResearchMessage);
         message.ack();
       } catch (error) {
         console.error("research_message_failed", message.body, error);
@@ -49,4 +49,4 @@ export default {
       console.error("retention_cleanup_failed", error);
     }
   }
-} satisfies ExportedHandler<Env>;
+};
