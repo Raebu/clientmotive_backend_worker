@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { id, isoNow } from "../lib/ids";
 import { hashValue, timingSafeEqual } from "../lib/security";
 import { nextBestAccounts } from "./acquisition";
+import type { NextBestAccount } from "./types";
 
 export async function createPortfolio(
   env: Env,
@@ -86,7 +87,7 @@ export async function clientDashboard(env: Env, accountId: string): Promise<Reco
   };
 }
 
-export async function suggestPortfolioPriorities(env: Env, portfolioId: string, limit = 10): Promise<Record<string, unknown>[]> {
+export async function suggestPortfolioPriorities(env: Env, portfolioId: string, limit = 10): Promise<NextBestAccount[]> {
   const rows = await env.DB.prepare(
     `SELECT a.account_id FROM portfolio_accounts pa
      JOIN commercial_accounts a ON a.account_id=pa.target_account_id
