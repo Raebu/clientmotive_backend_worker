@@ -1,0 +1,10 @@
+# Never commit real values.
+WEBSITE_SHARED_SECRET=replace-me
+ADMIN_API_TOKEN=replace-me
+TAVILY_API_KEY=
+BRAVE_SEARCH_API_KEY=
+RESEND_API_KEY=
+ALERT_EMAIL_TO=
+ALERT_EMAIL_FROM=ClientMotive Intelligence <clientmotive@theraeburngroup.com>
+SLACK_WEBHOOK_URL=
+HUBSPOT_ACCESS_TOKEN=
