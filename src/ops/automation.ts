@@ -25,7 +25,16 @@ export async function runRevenueOperationsAutomation(env:Env):Promise<Record<str
   }
 
   const accounts=await env.DB.prepare(
-    "SELECT account_id FROM commercial_accounts WHERE status='active' ORDER BY updated_at DESC LIMIT 25"
+    `SELECT DISTINCT a.account_id FROM commercial_accounts a
+     WHERE a.status='active' AND (
+       a.lifecycle_stage='customer'
+       OR EXISTS (SELECT 1 FROM subscriptions s WHERE s.account_id=a.account_id AND s.status='active')
+       OR EXISTS (
+         SELECT 1 FROM opportunities o JOIN opportunity_outcomes oo ON oo.opportunity_id=o.opportunity_id
+         WHERE o.account_id=a.account_id AND oo.outcome_type='won'
+       )
+     )
+     ORDER BY a.updated_at DESC LIMIT 25`
   ).all<{account_id:string}>();
   let successAlerts=0;
   for(const row of accounts.results){
@@ -70,6 +79,7 @@ export async function runRevenueOperationsAutomation(env:Env):Promise<Record<str
   ).all<{account_id:string;opportunity_id:string}>();
   for(const row of ready.results){
     const onboardingId=await startOnboarding(env,{accountId:row.account_id,opportunityId:row.opportunity_id});
+    await env.DB.prepare("UPDATE commercial_accounts SET lifecycle_stage='customer',updated_at=? WHERE account_id=?").bind(new Date().toISOString(),row.account_id).run();
     await addDeliveryMilestone(env,{accountId:row.account_id,opportunityId:row.opportunity_id,milestoneType:"research",title:"First useful research delivered"});
     await addDeliveryMilestone(env,{accountId:row.account_id,opportunityId:row.opportunity_id,milestoneType:"campaign_live",title:"First agreed commercial motion live"});
     await createHumanTask(env,{taskType:"onboarding_review",entityType:"account",entityId:row.account_id,title:"Review automatically created onboarding plan",reason:"Signed agreement and realised payment were detected.",priority:"normal",payload:{onboardingId}});
