@@ -40,9 +40,31 @@ import {
   qualitativeSearchDemand,
   recordExperimentResult
 } from "./learn";
-import { graphAround } from "./knowledge";
+import { connectEntities, graphAround } from "./knowledge";
 import { commercialDashboard, runDailyCommercialAutomation } from "./automation";
 import { createApiClient, recordApiUsage, verifyApiClient } from "./apiClients";
+import {
+  createCampaignHypothesis,
+  hypothesisPerformance,
+  outreachQueue,
+  recordCampaignEvent,
+  stageAutonomousProspecting,
+  updateOutreachCandidate
+} from "./outbound";
+import {
+  addPortfolioAccount,
+  clientDashboard,
+  createPortfolio,
+  issuePortalToken,
+  suggestPortfolioPriorities,
+  verifyPortalToken
+} from "./portal";
+import {
+  configureRoutingDestination,
+  createSubscription,
+  sendNewsletterAsset,
+  subscribeNewsletter
+} from "./subscriptions";
 
 const DIAGNOSTICS = new Set<DiagnosticType>([
   "outbound_readiness", "icp_clarity", "competitor_positioning", "pipeline_gap",
@@ -123,9 +145,37 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   const diagnostic = path.match(/^\/v1\/diagnostics\/([^/]+)$/);
   if (diagnostic && request.method === "GET") return getDiagnostic(request, env, diagnostic[1]!);
 
+  if (path === "/v1/newsletter/subscribe" && request.method === "POST") {
+    if (!browserOrigin(request, env)) return error("Origin not allowed.", 403);
+    if (env.INTAKE_RATE_LIMITER) {
+      const key = (request.headers.get("cf-connecting-ip") || "unknown").slice(0,80);
+      const rate = await env.INTAKE_RATE_LIMITER.limit({ key: "newsletter:" + key });
+      if (!rate.success) return error("Too many requests.", 429, "rate_limited");
+    }
+    const body = await parsedJson(request, 20_000);
+    try {
+      const subscriberId = await subscribeNewsletter(env, {
+        email: String(body.email || ""),
+        problemCategory: body.problemCategory ? String(body.problemCategory) : null,
+        source: body.source ? String(body.source) : "website",
+        consent: body.consent || {}
+      });
+      return json({ subscriberId, subscribed: true }, 201, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
+    } catch (e) {
+      return error(String(e).includes("consent") ? "Newsletter consent is required." : "Invalid subscription.", 422);
+    }
+  }
+
   if (path === "/v1/products" && request.method === "GET") {
     const rows = await env.DB.prepare("SELECT product_code,name,category,description,revenue_model,delivery_mode FROM commercial_products WHERE active=1 ORDER BY rowid").all();
     return json({ products: rows.results });
+  }
+
+  const clientPortal = path.match(/^\/v1\/client\/([^/]+)\/dashboard$/);
+  if (clientPortal && request.method === "GET") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientPortal[1]!, token))) return error("Unauthorized.", 401);
+    return json(await clientDashboard(env, clientPortal[1]!));
   }
 
   const industry = path.match(/^\/v1\/industries\/([^/]+)$/);
@@ -190,6 +240,17 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
   if (path === "/v1/admin/accounts/next-best" && request.method === "GET") return json({ accounts: await nextBestAccounts(env, Number(url.searchParams.get("limit") || "20")) });
   if (path === "/v1/admin/accounts/map" && request.method === "GET") return json({ accounts: await opportunityMap(env, Number(url.searchParams.get("limit") || "200")) });
+  if (path === "/v1/admin/outbound/stage" && request.method === "POST") return json({ candidates: await stageAutonomousProspecting(env, await parsedJson(request)) }, 201);
+  if (path === "/v1/admin/outbound/queue" && request.method === "GET") return json({ candidates: await outreachQueue(env, Number(url.searchParams.get("limit") || "50")) });
+  const outboundCandidate = path.match(/^\/v1\/admin\/outbound\/([^/]+)$/);
+  if (outboundCandidate && request.method === "POST") {
+    const body = await parsedJson(request);
+    await updateOutreachCandidate(env, outboundCandidate[1]!, body.status);
+    return json({ ok: true });
+  }
+  if (path === "/v1/admin/hypotheses" && request.method === "POST") return json({ hypothesisId: await createCampaignHypothesis(env, await parsedJson(request)) }, 201);
+  if (path === "/v1/admin/hypothesis-events" && request.method === "POST") return json({ eventId: await recordCampaignEvent(env, await parsedJson(request)) }, 201);
+  if (path === "/v1/admin/hypotheses/performance" && request.method === "GET") return json({ hypotheses: await hypothesisPerformance(env, Number(url.searchParams.get("limit") || "100")) });
 
   const message = path.match(/^\/v1\/admin\/accounts\/([^/]+)\/message$/);
   if (message && request.method === "POST") return json(await nextBestMessage(env, message[1]!));
@@ -217,18 +278,53 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   if (followup && request.method === "POST") return json(await followUpMeeting(env, followup[1]!, await parsedJson(request)));
 
   if (path === "/v1/admin/nurture" && request.method === "POST") return json({ enrollmentId: await enrollProblemNurture(env, await parsedJson(request)) }, 201);
-  if (path === "/v1/admin/referrals" && request.method === "POST") return json({ referralId: await recordReferral(env, await parsedJson(request)) }, 201);
+  if (path === "/v1/admin/referrals" && request.method === "POST") {
+    const body = await parsedJson(request);
+    if (!body.referralCode) body.referralCode = "CM-" + crypto.randomUUID().slice(0,8).toUpperCase();
+    return json({ referralId: await recordReferral(env, body), referralCode: body.referralCode }, 201);
+  }
   if (path === "/v1/admin/routes/suggest" && request.method === "POST") return json(await routeCommercialNeed(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/routing-destinations" && request.method === "POST") {
+    await configureRoutingDestination(env, await parsedJson(request));
+    return json({ ok: true }, 201);
+  }
+  if (path === "/v1/admin/subscriptions" && request.method === "POST") return json({ subscriptionId: await createSubscription(env, await parsedJson(request)) }, 201);
+  if (path === "/v1/admin/relationships" && request.method === "POST") {
+    const body = await parsedJson(request);
+    await connectEntities(env, body.from, body.to, body.edgeType, body.evidence || [], Number(body.weight || 50));
+    return json({ ok: true }, 201);
+  }
 
   if (path === "/v1/admin/experiments" && request.method === "POST") return json({ experimentId: await createExperiment(env, await parsedJson(request)) }, 201);
   if (path === "/v1/admin/experiment-results" && request.method === "POST") return json({ resultId: await recordExperimentResult(env, await parsedJson(request)) }, 201);
   if (path === "/v1/admin/content/harvest" && request.method === "POST") return json({ created: await harvestContentInsights(env) }, 201);
   if (path === "/v1/admin/content/assets" && request.method === "POST") return json(await generateContentAsset(env, await parsedJson(request)), 201);
+  const newsletterSend = path.match(/^\/v1\/admin\/newsletter\/([^/]+)\/send$/);
+  if (newsletterSend && request.method === "POST") return json(await sendNewsletterAsset(env, newsletterSend[1]!), 202);
   if (path === "/v1/admin/search-demand" && request.method === "POST") return json(await qualitativeSearchDemand(env, await parsedJson(request)));
   if (path === "/v1/admin/industries/generate" && request.method === "POST") return json(await generateIndustryPlaybook(env, await parsedJson(request)), 201);
+  const publishIndustry = path.match(/^\/v1\/admin\/industries\/([^/]+)\/publish$/);
+  if (publishIndustry && request.method === "POST") {
+    await env.DB.prepare("UPDATE industry_playbooks SET status='published',updated_at=? WHERE industry_slug=?").bind(isoNow(), publishIndustry[1]!).run();
+    return json({ ok: true });
+  }
   if (path === "/v1/admin/benchmarks" && request.method === "POST") return json(await generateBenchmark(env, await parsedJson(request)), 201);
 
   if (path === "/v1/admin/api-clients" && request.method === "POST") return json(await createApiClient(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/portfolios" && request.method === "POST") return json({ portfolioId: await createPortfolio(env, await parsedJson(request)) }, 201);
+  const portfolioAccount = path.match(/^\/v1\/admin\/portfolios\/([^/]+)\/accounts$/);
+  if (portfolioAccount && request.method === "POST") {
+    const body = await parsedJson(request);
+    await addPortfolioAccount(env, { portfolioId: portfolioAccount[1]!, targetAccountId: body.targetAccountId, tier: body.tier, notes: body.notes });
+    return json({ ok: true }, 201);
+  }
+  const portfolioPriorities = path.match(/^\/v1\/admin\/portfolios\/([^/]+)\/priorities$/);
+  if (portfolioPriorities && request.method === "GET") return json({ accounts: await suggestPortfolioPriorities(env, portfolioPriorities[1]!, Number(url.searchParams.get("limit") || "10")) });
+  const portalToken = path.match(/^\/v1\/admin\/accounts\/([^/]+)\/portal-token$/);
+  if (portalToken && request.method === "POST") {
+    const body = await parsedJson(request);
+    return json(await issuePortalToken(env, portalToken[1]!, Number(body.expiresInDays || 90)), 201);
+  }
   if (path === "/v1/admin/graph" && request.method === "GET") {
     const type = url.searchParams.get("type") || "";
     const key = url.searchParams.get("key") || "";
