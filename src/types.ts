@@ -11,6 +11,7 @@ export interface Env {
   ENVIRONMENT?: string;
   PUBLIC_ORIGIN?: string;
   AI_MODEL?: string;
+  AI_STRONG_MODEL?: string;
   SEARCH_PROVIDER?: string;
   MAX_SEARCHES_PER_LEAD?: string;
   MAX_PAGES_PER_COMPANY?: string;
