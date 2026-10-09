@@ -2,6 +2,8 @@ import type { Env } from "../types";
 import { id, isoNow } from "../lib/ids";
 import { hashValue, timingSafeEqual } from "../lib/security";
 import { aiJson } from "../services/ai";
+import { generateCommercialDocument } from "../commercial/convert";
+import { createHumanTask } from "./governance";
 
 export async function offerPerformance(env:Env,tenantId="tenant_clientmotive"):Promise<Record<string,unknown>>{
   const rows=await env.DB.prepare(
@@ -138,4 +140,45 @@ export async function churnLessons(env:Env,tenantId="tenant_clientmotive"):Promi
     qualificationLessons:rows.results.flatMap((r)=>JSON.parse(r.qualification_lessons_json || "[]")).slice(0,50),
     deliveryLessons:rows.results.flatMap((r)=>JSON.parse(r.delivery_lessons_json || "[]")).slice(0,50)
   };
+}
+
+
+export async function fulfilPaidSelfServiceOrders(env:Env,limit=20):Promise<{processed:number;fulfilled:number;needsReview:number}>{
+  const rows=await env.DB.prepare(
+    "SELECT * FROM self_service_orders WHERE status='paid' ORDER BY created_at LIMIT ?"
+  ).bind(Math.max(1,Math.min(50,limit))).all<any>();
+  let fulfilled=0,needsReview=0;
+  const mapping:Record<string,"icp_sprint"|"competitive_positioning"|"outbound_readiness"|"campaign_architecture"|"intelligence_brief">={
+    icp_sprint:"icp_sprint",
+    competitive_sprint:"competitive_positioning",
+    outbound_audit:"outbound_readiness",
+    campaign_architecture:"campaign_architecture",
+    market_intelligence:"intelligence_brief"
+  };
+  for(const order of rows.results){
+    const metadata=JSON.parse(order.metadata_json || "{}") as Record<string,unknown>;
+    const leadId=typeof metadata.leadId==="string"?metadata.leadId:null;
+    const opportunityId=typeof metadata.opportunityId==="string"?metadata.opportunityId:null;
+    const docType=mapping[order.product_code];
+    if(leadId && docType){
+      try{
+        const result=await generateCommercialDocument(env,{type:docType,leadId,opportunityId});
+        await updateSelfServiceOrder(env,order.order_id,{status:"fulfilled",deliveryDocumentId:result.documentId});
+        fulfilled+=1;
+        continue;
+      }catch{}
+    }
+    await createHumanTask(env,{
+      taskType:"self_service_fulfilment",
+      entityType:"order",
+      entityId:order.order_id,
+      title:"Fulfil paid ClientMotive intelligence order",
+      reason:"The order is paid but needs a human review or missing lead context before delivery.",
+      priority:"high",
+      payload:{productCode:order.product_code,email:order.email,metadata}
+    });
+    await updateSelfServiceOrder(env,order.order_id,{status:"needs_review"});
+    needsReview+=1;
+  }
+  return {processed:rows.results.length,fulfilled,needsReview};
 }
