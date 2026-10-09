@@ -29,7 +29,8 @@ import {
   recordOutcome,
   recordReferral,
   routeCommercialNeed,
-  scoreClientHealth
+  scoreClientHealth,
+  recordAccountMetric
 } from "./growth";
 import {
   createExperiment,
@@ -258,6 +259,8 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   if (referrals && request.method === "GET") return json({ suggestions: await buildReferralSuggestions(env, referrals[1]!) });
   const health = path.match(/^\/v1\/admin\/accounts\/([^/]+)\/health$/);
   if (health && request.method === "POST") return json(await scoreClientHealth(env, health[1]!, await parsedJson(request)));
+  const metric = path.match(/^\/v1\/admin\/accounts\/([^/]+)\/metrics$/);
+  if (metric && request.method === "POST") return json({ metricId: await recordAccountMetric(env, metric[1]!, await parsedJson(request)) }, 201);
   const expansion = path.match(/^\/v1\/admin\/accounts\/([^/]+)\/expansion$/);
   if (expansion && request.method === "GET") return json(await expansionSuggestions(env, expansion[1]!));
 
