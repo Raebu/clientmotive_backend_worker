@@ -5,6 +5,9 @@ import { corsHeaders, error, json } from "./lib/http";
 import { hashValue, timingSafeEqual, verifyAdmin, verifyWebsiteSignature } from "./lib/security";
 import { getIntentContext, recordIntentEvents } from "./services/intent";
 import { startResearch } from "./services/research";
+import { routeCommercial } from "./commercial/router";
+import { createOpportunityFromLead } from "./commercial/convert";
+import { createWatchlist } from "./commercial/acquisition";
 
 const ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -115,8 +118,22 @@ async function leadIntake(request: Request, env: Env): Promise<Response> {
   });
 
   let researchJobId: string | null = null;
+  let opportunityId: string | null = null;
   if (created || lead.research_status === "error") {
     researchJobId = await startResearch(env, lead.lead_id);
+  }
+  if (created) {
+    opportunityId = await createOpportunityFromLead(env, lead.lead_id);
+    if (lead.domain) {
+      await createWatchlist(env, {
+        ownerType: "clientmotive",
+        ownerId: lead.lead_id,
+        subjectType: "account",
+        subjectValue: lead.domain,
+        signalTypes: ["hiring","buyer_change","expansion","launch","funding","partnership","m_and_a"],
+        cadence: "weekly"
+      });
+    }
   }
 
   return json({
@@ -124,6 +141,7 @@ async function leadIntake(request: Request, env: Env): Promise<Response> {
     leadId: lead.lead_id,
     created,
     researchJobId,
+    opportunityId,
     prospectToken: publicToken,
     prospectSnapshotPath: `/v1/prospect/${lead.lead_id}/snapshot`
   }, created ? 201 : 200);
@@ -210,6 +228,35 @@ export async function route(request: Request, env: Env): Promise<Response> {
       fitIntentNeedScoring: true,
       dossier: true,
       prospectSnapshot: true,
+      valuePreview: true,
+      diagnostics: true,
+      productCatalogue: true,
+      watchlists: true,
+      triggerMonitoring: true,
+      autonomousAccountDiscovery: true,
+      partnerDiscovery: true,
+      opportunityMaps: true,
+      nextBestAccount: true,
+      nextBestMessage: true,
+      objections: true,
+      winLoss: true,
+      pricingIntelligence: true,
+      scopeAndProposalDrafts: true,
+      meetingPreparation: true,
+      meetingFollowup: true,
+      opportunityRescue: true,
+      problemLedNurture: true,
+      contentIntelligence: true,
+      qualitativeSearchDemand: true,
+      industryPlaybooks: true,
+      benchmarkReports: true,
+      referrals: true,
+      clientHealth: true,
+      renewalAndExpansion: true,
+      experiments: true,
+      crossBusinessRouting: true,
+      knowledgeGraph: true,
+      whiteLabelApi: true,
       searchProvider: env.TAVILY_API_KEY ? "tavily" : env.BRAVE_SEARCH_API_KEY ? "brave" : null,
       aiEnabled: Boolean(env.AI)
     });
@@ -227,6 +274,9 @@ export async function route(request: Request, env: Env): Promise<Response> {
 
   const research = path.match(/^\/v1\/leads\/([^/]+)\/research$/);
   if (research && request.method === "POST") return adminResearch(request, env, research[1]!);
+
+  const commercial = await routeCommercial(request, env);
+  if (commercial) return commercial;
 
   return error("Not found.", 404, "not_found");
 }
