@@ -136,7 +136,7 @@ export async function routeOps(request:Request,env:Env):Promise<Response|null>{
     try{
       const body=await parseJson(request,30_000);
       const orderId=await createSelfServiceOrder(env,{
-        email:String(body.email || ""),productCode:String(body.productCode || ""),amount:body.amount===undefined?null:Number(body.amount),
+        email:String(body.email || ""),productCode:String(body.productCode || ""),amount:null,
         currency:body.currency || "GBP",metadata:body.metadata || {}
       });
       return json({orderId,status:"created",paymentRequired:true},201,corsHeaders(request.headers.get("origin"),cfg(env).publicOrigin));
