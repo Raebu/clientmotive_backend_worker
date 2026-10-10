@@ -1,0 +1,37 @@
+name: Backend CI
+
+on:
+  push:
+    branches: [main, "build/**", "fix/**", "feat/**"]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      - name: Validate D1 migrations
+        run: |
+          python3 - <<'PY'
+          import glob, sqlite3
+          db = sqlite3.connect(":memory:")
+          for path in sorted(glob.glob("migrations/*.sql")):
+              print("applying", path)
+              with open(path, "r", encoding="utf-8") as f:
+                  db.executescript(f.read())
+          print("all migrations applied successfully")
+          PY
+      - run: npx wrangler deploy --dry-run --config wrangler.ci.jsonc
+      - name: Validate production Wrangler config
+        run: npx wrangler deploy --dry-run --config wrangler.jsonc
