@@ -211,6 +211,7 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
   return json({
     leadId,
     company: lead.company,
+    domain: lead.domain || null,
     researchStatus: lead.research_status,
     snapshot: dossier ? JSON.parse(dossier.prospect_snapshot_json) : null,
     companySummary: dossier ? profile?.summary || null : null,
