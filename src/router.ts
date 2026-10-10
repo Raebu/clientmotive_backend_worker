@@ -186,17 +186,47 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
   const supplied = await hashValue(token);
   if (!timingSafeEqual(supplied, lead.public_token_hash)) return error("Invalid token.", 401, "unauthorized");
 
-  const dossier = await env.DB.prepare("SELECT prospect_snapshot_json, generated_at FROM dossiers WHERE lead_id = ?")
-    .bind(leadId).first<{ prospect_snapshot_json: string; generated_at: string }>();
-  const profile = await env.DB.prepare("SELECT company_name, summary FROM company_profiles WHERE lead_id = ?")
-    .bind(leadId).first<{ company_name: string; summary: string }>();
+  const [dossier, profile, competitors, buyers, channels, targets, actions] = await Promise.all([
+    env.DB.prepare("SELECT prospect_snapshot_json, generated_at FROM dossiers WHERE lead_id = ?")
+      .bind(leadId).first<{ prospect_snapshot_json: string; generated_at: string }>(),
+    env.DB.prepare("SELECT company_name, summary FROM company_profiles WHERE lead_id = ?")
+      .bind(leadId).first<{ company_name: string; summary: string }>(),
+    env.DB.prepare(
+      "SELECT name,website,competitor_type,summary,differentiation_opportunity FROM competitors WHERE lead_id=? ORDER BY competitor_type,name LIMIT 6"
+    ).bind(leadId).all<any>(),
+    env.DB.prepare(
+      "SELECT role,role_type,pain,trigger_text,message_angle FROM buyer_roles WHERE lead_id=? ORDER BY role_type,role LIMIT 6"
+    ).bind(leadId).all<any>(),
+    env.DB.prepare(
+      "SELECT channel,priority,role_text,why_text,first_experiment FROM channel_recommendations WHERE lead_id=? ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END LIMIT 6"
+    ).bind(leadId).all<any>(),
+    env.DB.prepare(
+      "SELECT company,website,rationale,buyer_roles_json FROM target_accounts WHERE lead_id=? LIMIT 6"
+    ).bind(leadId).all<any>(),
+    env.DB.prepare(
+      "SELECT action_text,owner,priority,reason FROM next_actions WHERE lead_id=? AND status='open' ORDER BY CASE priority WHEN 'now' THEN 1 WHEN 'next' THEN 2 ELSE 3 END LIMIT 8"
+    ).bind(leadId).all<any>()
+  ]);
 
   return json({
     leadId,
     company: lead.company,
+    domain: lead.domain || null,
     researchStatus: lead.research_status,
     snapshot: dossier ? JSON.parse(dossier.prospect_snapshot_json) : null,
     companySummary: dossier ? profile?.summary || null : null,
+    marketView: dossier ? {
+      competitors: competitors.results,
+      buyers: buyers.results,
+      channels: channels.results,
+      targetAccounts: targets.results.map((row:any)=>({
+        company: row.company,
+        website: row.website,
+        rationale: row.rationale,
+        buyerRoles: JSON.parse(row.buyer_roles_json || "[]")
+      })),
+      nextActions: actions.results
+    } : null,
     updatedAt: dossier?.generated_at || lead.updated_at
   });
 }

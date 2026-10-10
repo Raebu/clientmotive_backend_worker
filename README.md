@@ -100,8 +100,13 @@ See `docs/WEBSITE_INTEGRATION.md` for payloads and signing.
    - `RESEND_API_KEY`
    - `ALERT_EMAIL_TO`
    - `SLACK_WEBHOOK_URL`
-9. Optional integration secrets can be added for inbox, CRM, billing and e-sign adapters. See `.dev.vars.example`.
-10. Deploy:
+9. Optional outbound intelligence secrets:
+   - `APOLLO_API_KEY` — zero-credit people search plus explicit, human-triggered work-email enrichment
+   - `QUICKEMAILVERIFICATION_API_KEY` — preferred deliverability check
+   - `HUNTER_API_KEY` — optional fallback verifier
+   - `OUTBOUND_FROM` / `OUTBOUND_REPLY_TO` — optional sender overrides
+10. Optional integration secrets can be added for inbox, CRM, billing and e-sign adapters. See `.dev.vars.example`.
+11. Deploy:
    `npx wrangler deploy`
 
 Do not commit `wrangler.jsonc` or `.dev.vars`; both are ignored.
@@ -119,7 +124,7 @@ npx wrangler deploy --dry-run --config wrangler.ci.jsonc
 
 The public website is intentionally a separate repository. The backend contract is documented in `docs/WEBSITE_INTEGRATION.md`.
 
-The current ClientMotive contact Worker should eventually:
+The ClientMotive website Worker should:
 1. keep its existing bot/spam checks
 2. accept the growth brief
 3. HMAC-sign the exact JSON body

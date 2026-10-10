@@ -18,6 +18,12 @@ ENRICHMENT_API_KEY=
 EMAIL_VERIFICATION_API_URL=
 EMAIL_VERIFICATION_API_KEY=
 HUNTER_API_KEY=
+QUICKEMAILVERIFICATION_API_KEY=
+APOLLO_API_KEY=
+
+# Approved-only outbound
+OUTBOUND_FROM=ClientMotive <clientmotive@clientmotive.com>
+OUTBOUND_REPLY_TO=contact@clientmotive.com
 
 # Notifications
 RESEND_API_KEY=

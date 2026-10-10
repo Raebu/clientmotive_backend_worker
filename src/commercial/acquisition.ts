@@ -104,8 +104,26 @@ export async function createWatchlist(
     consent?: Record<string, unknown>;
   }
 ): Promise<string> {
-  const watchlistId = id("watch");
   const now = isoNow();
+  const subjectValue = input.subjectValue.slice(0, 300);
+  const existing = await env.DB.prepare(
+    `SELECT watchlist_id FROM watchlists
+     WHERE owner_type=? AND COALESCE(owner_id,'')=COALESCE(?,'') AND subject_type=? AND subject_value=? AND status='active'
+     LIMIT 1`
+  ).bind(input.ownerType,input.ownerId || null,input.subjectType,subjectValue).first<{watchlist_id:string}>();
+  if (existing) {
+    await env.DB.prepare(
+      "UPDATE watchlists SET signal_types_json=?,cadence=?,consent_json=?,updated_at=? WHERE watchlist_id=?"
+    ).bind(
+      JSON.stringify(input.signalTypes || ["hiring", "leadership", "expansion", "launch", "funding", "partnership"]),
+      input.cadence || "weekly",
+      JSON.stringify(input.consent || {}),
+      now,
+      existing.watchlist_id
+    ).run();
+    return existing.watchlist_id;
+  }
+  const watchlistId = id("watch");
   await env.DB.prepare(
     `INSERT INTO watchlists (
       watchlist_id, owner_type, owner_id, subject_type, subject_value, signal_types_json,
@@ -116,7 +134,7 @@ export async function createWatchlist(
     input.ownerType,
     input.ownerId || null,
     input.subjectType,
-    input.subjectValue.slice(0, 300),
+    subjectValue,
     JSON.stringify(input.signalTypes || ["hiring", "leadership", "expansion", "launch", "funding", "partnership"]),
     input.cadence || "weekly",
     now,

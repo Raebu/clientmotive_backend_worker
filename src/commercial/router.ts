@@ -50,7 +50,9 @@ import {
   outreachQueue,
   recordCampaignEvent,
   stageAutonomousProspecting,
-  updateOutreachCandidate
+  updateOutreachCandidate,
+  prepareOutreachContact,
+  sendOutreachCandidate
 } from "./outbound";
 import {
   addPortfolioAccount,
@@ -243,6 +245,16 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   if (path === "/v1/admin/accounts/map" && request.method === "GET") return json({ accounts: await opportunityMap(env, Number(url.searchParams.get("limit") || "200")) });
   if (path === "/v1/admin/outbound/stage" && request.method === "POST") return json({ candidates: await stageAutonomousProspecting(env, await parsedJson(request)) }, 201);
   if (path === "/v1/admin/outbound/queue" && request.method === "GET") return json({ candidates: await outreachQueue(env, Number(url.searchParams.get("limit") || "50")) });
+  const outboundPrepare = path.match(/^\/v1\/admin\/outbound\/([^/]+)\/prepare$/);
+  if (outboundPrepare && request.method === "POST") {
+    const body = await parsedJson(request);
+    return json(await prepareOutreachContact(env,outboundPrepare[1]!,{
+      personKey: body.personKey ? String(body.personKey) : null,
+      enrich: body.enrich === true
+    }));
+  }
+  const outboundSend = path.match(/^\/v1\/admin\/outbound\/([^/]+)\/send$/);
+  if (outboundSend && request.method === "POST") return json(await sendOutreachCandidate(env,outboundSend[1]!));
   const outboundCandidate = path.match(/^\/v1\/admin\/outbound\/([^/]+)$/);
   if (outboundCandidate && request.method === "POST") {
     const body = await parsedJson(request);
