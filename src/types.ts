@@ -35,6 +35,7 @@ export interface Env {
   ENRICHMENT_API_KEY?: string;
   EMAIL_VERIFICATION_API_URL?: string;
   EMAIL_VERIFICATION_API_KEY?: string;
+  HUNTER_API_KEY?: string;
   COMPANIES_HOUSE_API_KEY?: string;
   BILLING_PROVIDER?: string;
   CRM_PROVIDER?: string;

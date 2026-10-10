@@ -17,11 +17,12 @@ ENRICHMENT_API_URL=
 ENRICHMENT_API_KEY=
 EMAIL_VERIFICATION_API_URL=
 EMAIL_VERIFICATION_API_KEY=
+HUNTER_API_KEY=
 
 # Notifications
 RESEND_API_KEY=
 ALERT_EMAIL_TO=
-ALERT_EMAIL_FROM=ClientMotive Intelligence <clientmotive@theraeburngroup.com>
+ALERT_EMAIL_FROM=ClientMotive Intelligence <clientmotive@clientmotive.com>
 SLACK_WEBHOOK_URL=
 
 # Optional direct provider adapters / future connectors

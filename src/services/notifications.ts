@@ -34,7 +34,7 @@ export async function notifyLeadReady(
           "content-type": "application/json"
         },
         body: JSON.stringify({
-          from: env.ALERT_EMAIL_FROM || "ClientMotive Intelligence <clientmotive@theraeburngroup.com>",
+          from: env.ALERT_EMAIL_FROM || "ClientMotive Intelligence <clientmotive@clientmotive.com>",
           to: [env.ALERT_EMAIL_TO],
           reply_to: lead.email,
           subject,
