@@ -2,6 +2,11 @@ import type { Env } from "../types";
 import { id, isoNow } from "../lib/ids";
 import { discoverTargetAccounts, nextBestAccounts } from "./acquisition";
 import { nextBestMessage } from "./convert";
+import {
+  discoverDecisionMakers,
+  enrichDecisionMaker,
+  sendApprovedOutreachCandidate
+} from "./contactDiscovery";
 
 export async function stageAutonomousProspecting(
   env: Env,
@@ -28,17 +33,28 @@ export async function stageAutonomousProspecting(
         status, approval_policy, created_at
       ) VALUES (?, ?, ?, ?, ?, 'ready_for_review', 'human', ?)`
     ).bind(candidateId, account.accountId, signal?.signal_id || null, message.reasonForContact, JSON.stringify(message), isoNow()).run();
-    staged.push({ candidateId, accountId: account.accountId, account: account.name, score: account.score, message });
+    let people: Record<string, unknown>[] = [];
+    try {
+      const discovery = await discoverDecisionMakers(env, candidateId, 5);
+      people = discovery.people;
+    } catch (error) {
+      people = [{ error: String(error) }];
+    }
+    staged.push({ candidateId, accountId: account.accountId, account: account.name, score: account.score, message, people });
   }
   return staged;
 }
 
 export async function outreachQueue(env: Env, limit = 50): Promise<Array<Record<string, unknown>>> {
   const rows = await env.DB.prepare(
-    `SELECT oc.*, a.name AS account_name, a.domain, s.title AS trigger_title, s.source_url AS trigger_source
+    `SELECT oc.*, a.name AS account_name, a.domain, s.title AS trigger_title, s.source_url AS trigger_source,
+       p.person_key,p.apollo_person_id,p.full_name AS contact_name,p.title AS contact_title,p.linkedin_url,
+       p.work_email,p.email_status,p.safe_to_send,p.verification_provider,p.contact_allowed,p.contact_reason,p.enrichment_status,
+       (SELECT COUNT(*) FROM outreach_people px WHERE px.candidate_id=oc.candidate_id) AS people_count
      FROM outreach_candidates oc
      JOIN commercial_accounts a ON a.account_id=oc.account_id
      LEFT JOIN commercial_signals s ON s.signal_id=oc.trigger_signal_id
+     LEFT JOIN outreach_people p ON p.person_key=oc.selected_person_key
      WHERE oc.status IN ('ready_for_review','approved')
      ORDER BY CASE oc.status WHEN 'approved' THEN 1 ELSE 2 END, oc.created_at DESC LIMIT ?`
   ).bind(Math.max(1, Math.min(200, limit))).all<any>();
@@ -99,4 +115,19 @@ export async function hypothesisPerformance(env: Env, limit = 100): Promise<Arra
      ORDER BY wins DESC, positive_events DESC, event_count DESC LIMIT ?`
   ).bind(Math.max(1, Math.min(500, limit))).all<any>();
   return rows.results;
+}
+
+
+export async function prepareOutreachContact(
+  env: Env,
+  candidateId: string,
+  input: { personKey?: string | null; enrich?: boolean }
+): Promise<Record<string, unknown>> {
+  const discovered = await discoverDecisionMakers(env, candidateId, 8);
+  if (!input.enrich) return discovered;
+  return enrichDecisionMaker(env, candidateId, input.personKey || discovered.selectedPersonKey || null);
+}
+
+export async function sendOutreachCandidate(env: Env, candidateId: string): Promise<Record<string, unknown>> {
+  return sendApprovedOutreachCandidate(env, candidateId);
 }

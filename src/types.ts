@@ -36,6 +36,10 @@ export interface Env {
   EMAIL_VERIFICATION_API_URL?: string;
   EMAIL_VERIFICATION_API_KEY?: string;
   HUNTER_API_KEY?: string;
+  QUICKEMAILVERIFICATION_API_KEY?: string;
+  APOLLO_API_KEY?: string;
+  OUTBOUND_FROM?: string;
+  OUTBOUND_REPLY_TO?: string;
   COMPANIES_HOUSE_API_KEY?: string;
   BILLING_PROVIDER?: string;
   CRM_PROVIDER?: string;

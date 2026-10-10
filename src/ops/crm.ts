@@ -155,6 +155,36 @@ export async function recordDeliverability(env:Env,input:{
 }
 
 export async function verifyEmailIfConfigured(env:Env,email:string):Promise<Record<string,unknown>>{
+  if(env.QUICKEMAILVERIFICATION_API_KEY){
+    try{
+      const url=new URL("https://api.quickemailverification.com/v1/verify");
+      url.searchParams.set("email",email);
+      url.searchParams.set("apikey",env.QUICKEMAILVERIFICATION_API_KEY);
+      const response=await fetch(url,{headers:{accept:"application/json"},signal:AbortSignal.timeout(12000)});
+      if(response.ok){
+        const data=await response.json() as any;
+        const status=String(data.result || "unknown").toLowerCase();
+        const safe=data.safe_to_send===true || data.safe_to_send==="true";
+        const disposable=data.disposable===true || data.disposable==="true";
+        const role=data.role===true || data.role==="true";
+        const acceptAll=data.accept_all===true || data.accept_all==="true";
+        const risk=status==="invalid" || disposable?95:
+          safe && !role && !acceptAll?5:
+          status==="valid" && !acceptAll?20:
+          acceptAll?65:
+          status==="unknown"?55:45;
+        await recordDeliverability(env,{email,provider:"quickemailverification",status,riskScore:risk,details:data});
+        if(status!=="unknown"){
+          return {configured:true,provider:"quickemailverification",status,riskScore:risk,safeToSend:safe,role,acceptAll,disposable};
+        }
+      }else{
+        const error="qev_"+response.status;
+        if(!env.HUNTER_API_KEY) return {configured:true,provider:"quickemailverification",status:"unknown",riskScore:60,error};
+      }
+    }catch(error){
+      if(!env.HUNTER_API_KEY) return {configured:true,provider:"quickemailverification",status:"unknown",riskScore:60,error:String(error)};
+    }
+  }
   if(env.HUNTER_API_KEY){
     try{
       const url=new URL("https://api.hunter.io/v2/email-verifier");
