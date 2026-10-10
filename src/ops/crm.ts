@@ -155,6 +155,30 @@ export async function recordDeliverability(env:Env,input:{
 }
 
 export async function verifyEmailIfConfigured(env:Env,email:string):Promise<Record<string,unknown>>{
+  if(env.HUNTER_API_KEY){
+    try{
+      const url=new URL("https://api.hunter.io/v2/email-verifier");
+      url.searchParams.set("email",email);
+      const response=await fetch(url,{
+        headers:{"X-API-KEY":env.HUNTER_API_KEY,accept:"application/json"},
+        signal:AbortSignal.timeout(25000)
+      });
+      if(response.status===202) return {configured:true,provider:"hunter",status:"pending",riskScore:50};
+      if(!response.ok) return {configured:true,provider:"hunter",status:"unknown",riskScore:60,error:"hunter_"+response.status};
+      const payload=await response.json() as any;
+      const data=payload?.data || {};
+      const status=String(data.status || "unknown").toLowerCase();
+      const score=typeof data.score==="number"?Math.max(0,Math.min(100,data.score)):50;
+      const risk=["invalid","blocked"].includes(status)?95:
+        status==="valid"?Math.max(0,100-score):
+        status==="accept_all"?65:
+        status==="webmail"?35:50;
+      await recordDeliverability(env,{email,provider:"hunter",status,riskScore:risk,details:data});
+      return {configured:true,provider:"hunter",status,riskScore:risk,score};
+    }catch(error){
+      return {configured:true,provider:"hunter",status:"unknown",riskScore:60,error:String(error)};
+    }
+  }
   if(!env.EMAIL_VERIFICATION_API_URL || !env.EMAIL_VERIFICATION_API_KEY){
     return {configured:false,status:"unknown",riskScore:50};
   }
