@@ -64,11 +64,11 @@ export async function sendNewsletterAsset(env: Env, assetId: string): Promise<{ 
       method: "POST",
       headers: { authorization: "Bearer " + env.RESEND_API_KEY, "content-type": "application/json" },
       body: JSON.stringify({
-        from: env.ALERT_EMAIL_FROM || "ClientMotive Signals <clientmotive@theraeburngroup.com>",
+        from: env.ALERT_EMAIL_FROM || "ClientMotive Signals <clientmotive@clientmotive.com>",
         to: [subscriber.email],
         subject: String(draft.title || asset.title),
         text: String(draft.draft || draft.thesis || ""),
-        headers: { "List-Unsubscribe": "<mailto:contact@theraeburngroup.com?subject=unsubscribe>" }
+        headers: { "List-Unsubscribe": "<mailto:contact@clientmotive.com?subject=unsubscribe>" }
       })
     });
     const provider = await response.json().catch(() => ({})) as any;
