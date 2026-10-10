@@ -212,7 +212,7 @@ export async function scanWatchlist(env: Env, watchlistId: string): Promise<{ fo
             "content-type": "application/json"
           },
           body: JSON.stringify({
-            from: env.ALERT_EMAIL_FROM || "ClientMotive Signals <clientmotive@theraeburngroup.com>",
+            from: env.ALERT_EMAIL_FROM || "ClientMotive Signals <clientmotive@clientmotive.com>",
             to: [lead.email],
             subject: "New signal from your ClientMotive account watch",
             text
