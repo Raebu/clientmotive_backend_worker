@@ -20,6 +20,31 @@
     "ALERT_EMAIL_FROM": "ClientMotive Intelligence <clientmotive@clientmotive.com>",
     "ALERT_EMAIL_TO": "contact@clientmotive.com"
   },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "clientmotive-revenue-intelligence",
+      "database_id": "93c8f65b-5009-49d0-b49e-0654cbcf6aed",
+      "migrations_dir": "migrations"
+    }
+  ],
+  "queues": {
+    "producers": [
+      {
+        "binding": "RESEARCH_QUEUE",
+        "queue": "clientmotive-research"
+      }
+    ],
+    "consumers": [
+      {
+        "queue": "clientmotive-research",
+        "max_batch_size": 5,
+        "max_batch_timeout": 5,
+        "max_retries": 3,
+        "dead_letter_queue": "clientmotive-research-dlq"
+      }
+    ]
+  },
   "ratelimits": [
     {
       "name": "EVENT_RATE_LIMITER",
@@ -39,6 +64,5 @@
     "crons": ["17 2 * * *"]
   }
 
-  // D1 and Queue bindings are intentionally added after their Cloudflare
-  // resources are provisioned. Secrets remain dashboard-managed.
+  // Secrets remain dashboard-managed in Cloudflare.
 }
