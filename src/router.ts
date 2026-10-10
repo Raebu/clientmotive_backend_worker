@@ -11,6 +11,7 @@ import { createWatchlist } from "./commercial/acquisition";
 import { routeOps } from "./ops/router";
 import { addPermission, upsertContact } from "./ops/crm";
 import { seedAttributionFromVisitor } from "./ops/intelligence";
+import { buildPublicCompanyPreview, publicExperienceMetrics } from "./commercial/publicExperience";
 
 const ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -95,6 +96,30 @@ async function publicContext(request: Request, env: Env): Promise<Response> {
   if (!ID_RE.test(visitorId)) return error("Invalid visitor identifier.");
   const context = await getIntentContext(env, visitorId);
   return json(context, 200, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
+}
+
+
+async function publicCompanyPreview(request: Request, env: Env): Promise<Response> {
+  if (!validBrowserOrigin(request, env)) return error("Origin not allowed.", 403, "origin_rejected");
+  if (!(await rateLimit(request, env.INTAKE_RATE_LIMITER))) return error("Too many company analyses.", 429, "rate_limited");
+  let body: { domain?: string };
+  try { body = await request.json() as { domain?: string }; }
+  catch { return error("Invalid JSON."); }
+  const domain = clean(body.domain, 240).toLowerCase();
+  try {
+    const preview = await buildPublicCompanyPreview(env, domain);
+    return json(preview, 200, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
+  } catch (err) {
+    const message = String(err instanceof Error ? err.message : err);
+    if (message === "invalid_domain") return error("Enter a valid public company domain.", 422, "invalid_domain");
+    return error("We could not analyse that domain right now.", 502, "preview_failed");
+  }
+}
+
+async function publicMetrics(request: Request, env: Env): Promise<Response> {
+  if (!validBrowserOrigin(request, env)) return error("Origin not allowed.", 403, "origin_rejected");
+  if (!(await rateLimit(request, env.EVENT_RATE_LIMITER))) return error("Too many requests.", 429, "rate_limited");
+  return json(await publicExperienceMetrics(env), 200, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
 }
 
 async function leadIntake(request: Request, env: Env): Promise<Response> {
@@ -288,6 +313,8 @@ export async function route(request: Request, env: Env): Promise<Response> {
       fitIntentNeedScoring: true,
       dossier: true,
       prospectSnapshot: true,
+      publicCompanyPreview: true,
+      publicExperienceMetrics: true,
       valuePreview: true,
       diagnostics: true,
       productCatalogue: true,
@@ -371,6 +398,8 @@ export async function route(request: Request, env: Env): Promise<Response> {
 
   if (path === "/v1/events" && request.method === "POST") return publicEvents(request, env);
   if (path === "/v1/context" && request.method === "GET") return publicContext(request, env);
+  if (path === "/v1/public/company-preview" && request.method === "POST") return publicCompanyPreview(request, env);
+  if (path === "/v1/public/metrics" && request.method === "GET") return publicMetrics(request, env);
   if (path === "/v1/leads/intake" && request.method === "POST") return leadIntake(request, env);
 
   const prospect = path.match(/^\/v1\/prospect\/([^/]+)\/snapshot$/);
