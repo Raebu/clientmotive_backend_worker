@@ -1,6 +1,0 @@
-{
-  "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "clientmotive-backend-worker-ci",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-10-09"
-}
