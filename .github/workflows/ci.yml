@@ -33,3 +33,5 @@ jobs:
           print("all migrations applied successfully")
           PY
       - run: npx wrangler deploy --dry-run --config wrangler.ci.jsonc
+      - name: Validate production Wrangler config
+        run: npx wrangler deploy --dry-run --config wrangler.jsonc
