@@ -62,6 +62,7 @@ import {
   suggestPortfolioPriorities,
   verifyPortalToken
 } from "./portal";
+import { buildMarketingCompetitorIntelligence, latestMarketingCompetitorIntelligence } from "./marketingIntelligence";
 import {
   configureRoutingDestination,
   createSubscription,
@@ -231,6 +232,24 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
 
   if (path === "/v1/admin/dashboard" && request.method === "GET") return json(await commercialDashboard(env));
+  if (path === "/v1/admin/intelligence/marketing-competitor/analyse" && request.method === "POST") {
+    const body = await parsedJson(request);
+    if (!body.domain) return error("domain is required.", 422);
+    return json(await buildMarketingCompetitorIntelligence(env, {
+      domain: String(body.domain),
+      companyName: body.companyName ? String(body.companyName) : null,
+      offer: body.offer ? String(body.offer) : null,
+      market: body.market ? String(body.market) : null,
+      leadId: body.leadId ? String(body.leadId) : null
+    }), 201);
+  }
+  if (path === "/v1/admin/intelligence/marketing-competitor" && request.method === "GET") {
+    const domain = url.searchParams.get("domain");
+    const leadId = url.searchParams.get("lead_id");
+    if (!domain && !leadId) return error("domain or lead_id is required.", 422);
+    const report = await latestMarketingCompetitorIntelligence(env, { domain, leadId });
+    return report ? json(report) : error("Not found.", 404);
+  }
   if (path === "/v1/admin/automation/run" && request.method === "POST") return json(await runDailyCommercialAutomation(env), 202);
 
   if (path === "/v1/admin/accounts/discover" && request.method === "POST") {

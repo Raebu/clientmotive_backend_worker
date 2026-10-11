@@ -12,6 +12,7 @@ import { routeOps } from "./ops/router";
 import { addPermission, upsertContact } from "./ops/crm";
 import { seedAttributionFromVisitor } from "./ops/intelligence";
 import { buildPublicCompanyPreview, publicExperienceMetrics } from "./commercial/publicExperience";
+import { latestMarketingCompetitorIntelligence } from "./commercial/marketingIntelligence";
 import { buildPublicBuyerMap, buildPublicIcpBrief } from "./commercial/publicTools";
 
 const ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
@@ -249,7 +250,7 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
   const supplied = await hashValue(token);
   if (!timingSafeEqual(supplied, lead.public_token_hash)) return error("Invalid token.", 401, "unauthorized");
 
-  const [dossier, profile, competitors, buyers, channels, targets, actions] = await Promise.all([
+  const [dossier, profile, competitors, buyers, channels, targets, actions, marketingCompetitive] = await Promise.all([
     env.DB.prepare("SELECT prospect_snapshot_json, generated_at FROM dossiers WHERE lead_id = ?")
       .bind(leadId).first<{ prospect_snapshot_json: string; generated_at: string }>(),
     env.DB.prepare("SELECT company_name, summary FROM company_profiles WHERE lead_id = ?")
@@ -268,7 +269,8 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
     ).bind(leadId).all<any>(),
     env.DB.prepare(
       "SELECT action_text,owner,priority,reason FROM next_actions WHERE lead_id=? AND status='open' ORDER BY CASE priority WHEN 'now' THEN 1 WHEN 'next' THEN 2 ELSE 3 END LIMIT 8"
-    ).bind(leadId).all<any>()
+    ).bind(leadId).all<any>(),
+    latestMarketingCompetitorIntelligence(env, { leadId })
   ]);
 
   return json({
@@ -288,7 +290,16 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
         rationale: row.rationale,
         buyerRoles: JSON.parse(row.buyer_roles_json || "[]")
       })),
-      nextActions: actions.results
+      nextActions: actions.results,
+      marketingCompetitive: marketingCompetitive ? {
+        executiveSummary: marketingCompetitive.report.executiveSummary,
+        competitiveLandscape: marketingCompetitive.report.competitiveLandscape,
+        opportunities: marketingCompetitive.report.opportunities,
+        priorities: marketingCompetitive.report.priorities,
+        evidenceGaps: marketingCompetitive.report.evidenceGaps,
+        confidence: marketingCompetitive.confidence,
+        evidenceCoverage: marketingCompetitive.evidenceCoverage
+      } : null
     } : null,
     updatedAt: dossier?.generated_at || lead.updated_at
   });
