@@ -12,6 +12,7 @@ import { routeOps } from "./ops/router";
 import { addPermission, upsertContact } from "./ops/crm";
 import { seedAttributionFromVisitor } from "./ops/intelligence";
 import { buildPublicCompanyPreview, publicExperienceMetrics } from "./commercial/publicExperience";
+import { buildPublicBuyerMap, buildPublicIcpBrief } from "./commercial/publicTools";
 
 const ID_RE = /^[a-zA-Z0-9_-]{8,128}$/;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
@@ -98,6 +99,43 @@ async function publicContext(request: Request, env: Env): Promise<Response> {
   return json(context, 200, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
 }
 
+
+
+async function publicIcpBuilder(request: Request, env: Env): Promise<Response> {
+  if (!validBrowserOrigin(request, env)) return error("Origin not allowed.", 403, "origin_rejected");
+  if (!(await rateLimit(request, env.INTAKE_RATE_LIMITER))) return error("Too many tool requests.", 429, "rate_limited");
+  let body: Record<string, unknown>;
+  try { body = await request.json() as Record<string, unknown>; }
+  catch { return error("Invalid JSON."); }
+  const input = {
+    offer: clean(body.offer, 1200),
+    bestFit: clean(body.bestFit, 1200),
+    geography: clean(body.geography, 240),
+    companySize: clean(body.companySize, 240),
+    trigger: clean(body.trigger, 900),
+    exclusions: clean(body.exclusions, 900),
+    knownBuyer: clean(body.knownBuyer, 300)
+  };
+  if (input.offer.length < 10 || input.bestFit.length < 10) return error("Tell us what you sell and who gets the most value.", 422, "invalid_tool_input");
+  return json(await buildPublicIcpBrief(env, input), 200, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
+}
+
+async function publicBuyerMap(request: Request, env: Env): Promise<Response> {
+  if (!validBrowserOrigin(request, env)) return error("Origin not allowed.", 403, "origin_rejected");
+  if (!(await rateLimit(request, env.INTAKE_RATE_LIMITER))) return error("Too many tool requests.", 429, "rate_limited");
+  let body: Record<string, unknown>;
+  try { body = await request.json() as Record<string, unknown>; }
+  catch { return error("Invalid JSON."); }
+  const input = {
+    offer: clean(body.offer, 1200),
+    targetCustomer: clean(body.targetCustomer, 1200),
+    problem: clean(body.problem, 1200),
+    dealComplexity: clean(body.dealComplexity, 120),
+    knownBuyer: clean(body.knownBuyer, 300)
+  };
+  if (input.offer.length < 10 || input.targetCustomer.length < 10 || input.problem.length < 10) return error("Tell us about the offer, target customer and problem.", 422, "invalid_tool_input");
+  return json(await buildPublicBuyerMap(env, input), 200, corsHeaders(request.headers.get("origin"), cfg(env).publicOrigin));
+}
 
 async function publicCompanyPreview(request: Request, env: Env): Promise<Response> {
   if (!validBrowserOrigin(request, env)) return error("Origin not allowed.", 403, "origin_rejected");
@@ -314,6 +352,8 @@ export async function route(request: Request, env: Env): Promise<Response> {
       dossier: true,
       prospectSnapshot: true,
       publicCompanyPreview: true,
+      publicIcpBuilder: true,
+      publicBuyerMap: true,
       publicExperienceMetrics: true,
       valuePreview: true,
       diagnostics: true,
@@ -399,6 +439,8 @@ export async function route(request: Request, env: Env): Promise<Response> {
   if (path === "/v1/events" && request.method === "POST") return publicEvents(request, env);
   if (path === "/v1/context" && request.method === "GET") return publicContext(request, env);
   if (path === "/v1/public/company-preview" && request.method === "POST") return publicCompanyPreview(request, env);
+  if (path === "/v1/public/icp-builder" && request.method === "POST") return publicIcpBuilder(request, env);
+  if (path === "/v1/public/buyer-map" && request.method === "POST") return publicBuyerMap(request, env);
   if (path === "/v1/public/metrics" && request.method === "GET") return publicMetrics(request, env);
   if (path === "/v1/leads/intake" && request.method === "POST") return leadIntake(request, env);
 
