@@ -157,7 +157,6 @@ export async function searchMany(env: Env, queries: string[], maxResults = 6, wo
 
 export async function discoverCompanyPages(env: Env, domain: string): Promise<Array<{ title: string; text: string; url: string }>> {
   const maxPages = cfg(env).maxPagesPerCompany;
-  const base = "https://" + domain;
   const priority = [
     "/",
     "/about",
@@ -168,14 +167,21 @@ export async function discoverCompanyPages(env: Env, domain: string): Promise<Ar
     "/customers",
     "/case-studies"
   ];
-  const urls = new Set<string>(priority.map((p) => new URL(p, base).toString()));
+  const origins = ["https://" + domain, "https://www." + domain];
+  const urls = new Set<string>();
+  for (const origin of origins) {
+    for (const path of priority) {
+      try { urls.add(new URL(path, origin).toString()); } catch {}
+    }
+  }
 
-  try {
-    const sitemap = await fetch(new URL("/sitemap.xml", base), {
-      headers: { "user-agent": "ClientMotiveResearchBot/1.0 (+https://www.clientmotive.com/)" },
-      signal: AbortSignal.timeout(6_000)
-    });
-    if (sitemap.ok) {
+  for (const origin of origins) {
+    try {
+      const sitemap = await fetch(new URL("/sitemap.xml", origin), {
+        headers: { "user-agent": "ClientMotiveResearchBot/1.0 (+https://www.clientmotive.com/)" },
+        signal: AbortSignal.timeout(6_000)
+      });
+      if (!sitemap.ok) continue;
       const xml = (await sitemap.text()).slice(0, 400_000);
       for (const match of xml.matchAll(/<loc>([^<]+)<\/loc>/gi)) {
         const candidate = match[1]?.trim();
@@ -187,18 +193,56 @@ export async function discoverCompanyPages(env: Env, domain: string): Promise<Ar
             urls.add(u.toString());
           }
         } catch {}
-        if (urls.size >= maxPages * 3) break;
+        if (urls.size >= maxPages * 4) break;
       }
-    }
-  } catch {}
+    } catch {}
+  }
 
   const pages: Array<{ title: string; text: string; url: string }> = [];
-  for (const url of [...urls].slice(0, maxPages * 2)) {
+  const seen = new Set<string>();
+  for (const url of [...urls].slice(0, maxPages * 3)) {
     if (pages.length >= maxPages) break;
     try {
       const page = await fetchPageText(url);
-      if (page && page.text.length >= 150) pages.push(page);
+      if (!page || page.text.length < 150) continue;
+      const canonicalHost = new URL(page.url).hostname.replace(/^www\./, "");
+      if (canonicalHost !== domain) continue;
+      const key = page.url.replace(/\/$/, "");
+      if (seen.has(key)) continue;
+      seen.add(key);
+      pages.push(page);
     } catch {}
   }
+
+  // Some public sites block direct crawler fetches or create Worker-to-Worker loops.
+  // Fall back to exact-domain indexed pages rather than returning an empty public brief.
+  if (pages.length < Math.min(2, maxPages)) {
+    try {
+      const indexed = await searchWeb(
+        env,
+        "site:" + domain + " (" + ["about","services","solutions","products","pricing"].join(" OR ") + ")",
+        Math.min(10, maxPages * 2),
+        "public_preview"
+      );
+      for (const item of indexed) {
+        if (pages.length >= maxPages) break;
+        try {
+          const u = new URL(item.url);
+          if (u.hostname.replace(/^www\./, "") !== domain) continue;
+          const key = item.url.replace(/\/$/, "");
+          if (seen.has(key)) continue;
+          const text = (item.snippet || "").replace(/\s+/g, " ").trim();
+          if (text.length < 80) continue;
+          seen.add(key);
+          pages.push({
+            title: item.title || domain,
+            text,
+            url: item.url
+          });
+        } catch {}
+      }
+    } catch {}
+  }
+
   return pages;
 }
