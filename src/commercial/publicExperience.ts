@@ -240,7 +240,7 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
           "OBSERVED PAGE BRAND SIGNALS:",
           JSON.stringify(brandSignals),
           "",
-          "STRICTLY MATCHED EXTERNAL SIGNAL CANDIDATES:"
+          "STRICTLY MATCHED EXTERNAL SIGNAL CANDIDATES:",
           JSON.stringify(signalPrompt),
           "",
           "Return JSON with:",
