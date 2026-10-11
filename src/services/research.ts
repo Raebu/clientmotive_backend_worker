@@ -18,10 +18,12 @@ import { discoverCompanyPages, searchMany } from "./search";
 import { estimateBriefSpecificity, scoreLead } from "./scoring";
 import { getIntentContext } from "./intent";
 import { notifyLeadReady } from "./notifications";
+import { buildMarketingCompetitorIntelligence } from "../commercial/marketingIntelligence";
 
 const STAGES: ResearchStage[] = [
   "company_profile",
   "competitive_landscape",
+  "marketing_intelligence",
   "market_channels",
   "buyers_icp",
   "target_accounts",
@@ -179,6 +181,17 @@ async function competitorStage(env: Env, lead: LeadRow): Promise<void> {
       JSON.stringify(item.sourceUrls || []), isoNow()
     )));
   }
+}
+
+async function marketingIntelligenceStage(env: Env, lead: LeadRow): Promise<void> {
+  if (!lead.domain) return;
+  await buildMarketingCompetitorIntelligence(env, {
+    domain: lead.domain,
+    companyName: lead.company,
+    offer: lead.offer,
+    market: lead.market,
+    leadId: lead.lead_id
+  });
 }
 
 async function channelStage(env: Env, lead: LeadRow): Promise<void> {
@@ -427,6 +440,7 @@ export async function processResearchMessage(env: Env, message: ResearchMessage)
     switch (message.stage) {
       case "company_profile": await companyProfileStage(env, lead); break;
       case "competitive_landscape": await competitorStage(env, lead); break;
+      case "marketing_intelligence": await marketingIntelligenceStage(env, lead); break;
       case "market_channels": await channelStage(env, lead); break;
       case "buyers_icp": await buyersStage(env, lead); break;
       case "target_accounts": await targetAccountsStage(env, lead); break;

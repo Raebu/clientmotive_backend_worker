@@ -246,3 +246,69 @@ export async function discoverCompanyPages(env: Env, domain: string): Promise<Ar
 
   return pages;
 }
+
+
+export interface PageBrandSignals {
+  url: string;
+  title: string;
+  description: string | null;
+  themeColor: string | null;
+  colours: string[];
+  fonts: string[];
+  socialLinks: string[];
+  logoCandidates: string[];
+}
+
+export async function fetchPageBrandSignals(url: string): Promise<PageBrandSignals | null> {
+  let parsed: URL;
+  try { parsed = new URL(url); } catch { return null; }
+  if (!["http:","https:"].includes(parsed.protocol) || isUnsafeHost(parsed.hostname)) return null;
+
+  const response = await fetch(parsed.toString(), {
+    headers: {
+      "user-agent": "ClientMotiveResearchBot/1.0 (+https://www.clientmotive.com/)",
+      accept: "text/html,application/xhtml+xml"
+    },
+    redirect: "follow",
+    signal: AbortSignal.timeout(8_000)
+  });
+  if (!response.ok) return null;
+  const type = response.headers.get("content-type") || "";
+  if (!type.includes("text/html") && !type.includes("application/xhtml+xml")) return null;
+
+  const raw = (await response.text()).slice(0, 900_000);
+  const title = (raw.match(/<title[^>]*>([\s\S]*?)<\/title>/i)?.[1] || "").replace(/<[^>]+>/g," ").replace(/\s+/g," ").trim().slice(0,240);
+  const description = (raw.match(/<meta[^>]+name=["']description["'][^>]+content=["']([^"']+)["']/i)?.[1]
+    || raw.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']description["']/i)?.[1]
+    || "").replace(/\s+/g," ").trim().slice(0,500) || null;
+  const themeColor = (raw.match(/<meta[^>]+name=["']theme-color["'][^>]+content=["']([^"']+)["']/i)?.[1]
+    || raw.match(/<meta[^>]+content=["']([^"']+)["'][^>]+name=["']theme-color["']/i)?.[1]
+    || "").trim().slice(0,40) || null;
+
+  const colourCounts = new Map<string,number>();
+  for (const match of raw.matchAll(/#[0-9a-fA-F]{6}\b/g)) {
+    const colour = match[0]!.toUpperCase();
+    colourCounts.set(colour,(colourCounts.get(colour)||0)+1);
+  }
+  const colours = [...colourCounts.entries()]
+    .filter(([colour]) => !["#FFFFFF","#000000","#F5F5F5","#FAFAFA"].includes(colour))
+    .sort((a,b)=>b[1]-a[1]).slice(0,8).map(([colour])=>colour);
+
+  const fontCounts = new Map<string,number>();
+  for (const match of raw.matchAll(/font-family\s*:\s*([^;}{]+)/gi)) {
+    const font = match[1]!.replace(/["']/g,"").split(",")[0]!.trim().slice(0,80);
+    if (!font || /^(inherit|initial|sans-serif|serif|system-ui)$/i.test(font)) continue;
+    fontCounts.set(font,(fontCounts.get(font)||0)+1);
+  }
+  const fonts = [...fontCounts.entries()].sort((a,b)=>b[1]-a[1]).slice(0,6).map(([font])=>font);
+
+  const socialLinks = [...raw.matchAll(/href=["'](https?:\/\/[^"']*(?:linkedin\.com|youtube\.com|youtu\.be|twitter\.com|x\.com|instagram\.com|facebook\.com|tiktok\.com)[^"']*)["']/gi)]
+    .map((m)=>m[1]!).filter((v,i,a)=>a.indexOf(v)===i).slice(0,10);
+
+  const logoCandidates = [...raw.matchAll(/(?:src|href)=["']([^"']*(?:logo|brand)[^"']*\.(?:svg|png|webp|jpg|jpeg)[^"']*)["']/gi)]
+    .map((m)=>{
+      try { return new URL(m[1]!, response.url).toString(); } catch { return ""; }
+    }).filter(Boolean).filter((v,i,a)=>a.indexOf(v)===i).slice(0,8);
+
+  return { url: response.url, title, description, themeColor, colours, fonts, socialLinks, logoCandidates };
+}

@@ -1,6 +1,6 @@
 import type { Env } from "../types";
 import { aiJson } from "../services/ai";
-import { discoverCompanyPages, searchWeb } from "../services/search";
+import { discoverCompanyPages, fetchPageBrandSignals, searchWeb } from "../services/search";
 
 const DOMAIN_RE = /^(?=.{4,253}$)(?!-)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/i;
 
@@ -104,6 +104,18 @@ type Preview = {
   commercialObservations: string[];
   commercialOpportunities: string[];
   comparisonCategories: string[];
+  marketingSnapshot: {
+    visualIdentity: {
+      themeColor: string | null;
+      colours: string[];
+      fonts: string[];
+    };
+    positioningHypothesis: string | null;
+    messagingThemes: string[];
+    websiteObservations: string[];
+    marketingOpportunities: string[];
+    evidenceStatus: "Observed" | "Partial" | "Limited";
+  };
   publicSignals: PublicSignal[];
   evidenceSources: EvidenceSource[];
   evidenceCoverage: "Strong" | "Moderate" | "Limited";
@@ -119,6 +131,9 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
 
   const primary = pages[0] || null;
   const companyName = companyFromTitle(primary?.title || "", domain);
+
+  let brandSignals: Awaited<ReturnType<typeof fetchPageBrandSignals>> | null = null;
+  try { brandSignals = await fetchPageBrandSignals(primary?.url || "https://" + domain); } catch {}
 
   let matchedSignals: Array<{ title: string; snippet: string; url: string; source: string }> = [];
   try {
@@ -180,6 +195,10 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
       : ["The public website did not provide enough reliable first-party evidence for a confident mini-report."],
     commercialOpportunities: [] as string[],
     comparisonCategories: [] as string[],
+    positioningHypothesis: null as string | null,
+    messagingThemes: [] as string[],
+    websiteObservations: [] as string[],
+    marketingOpportunities: [] as string[],
     signals: [] as Array<{ sourceIndex: number; headline: string; whyItMatters: string }>
   };
 
@@ -192,6 +211,10 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
         commercialObservations: string[];
         commercialOpportunities: string[];
         comparisonCategories: string[];
+        positioningHypothesis: string | null;
+        messagingThemes: string[];
+        websiteObservations: string[];
+        marketingOpportunities: string[];
         signals: Array<{ sourceIndex: number; headline: string; whyItMatters: string }>;
       }>(
         env,
@@ -203,7 +226,9 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
           "Never copy raw page text, navigation text, category strings, markdown fragments or search snippets into the answer.",
           "Never invent customers, competitors, outcomes, funding, hiring, leadership changes or buying intent.",
           "If evidence is insufficient for a field, return null or an empty array rather than filler such as 'requires deeper research'.",
-          "Buyer roles, comparison categories and opportunities are hypotheses and must be phrased as such.",
+          "Buyer roles, comparison categories, positioning and opportunities are hypotheses and must be phrased as such.",
+          "For marketing, only describe what is visible in the supplied site evidence. Do not invent campaign performance, ad spend, conversion data, customer sentiment or official brand guidelines.",
+          "Observed colours/fonts are technical page signals, not automatically official brand standards.",
           "Keep every item short, specific and useful to a B2B buyer."
         ].join(" "),
         [
@@ -211,6 +236,9 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
           "COMPANY NAME CANDIDATE: " + companyName,
           "",
           websiteEvidence || "NO FIRST-PARTY WEBSITE EVIDENCE",
+          "",
+          "OBSERVED PAGE BRAND SIGNALS:",
+          JSON.stringify(brandSignals),
           "",
           "STRICTLY MATCHED EXTERNAL SIGNAL CANDIDATES:",
           JSON.stringify(signalPrompt),
@@ -223,6 +251,10 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
           "- commercialObservations: max 3 evidence-led observations",
           "- commercialOpportunities: max 3 useful opportunities/gaps to investigate, phrased as hypotheses",
           "- comparisonCategories: max 3 category-level alternatives/status-quo hypotheses, never invented named competitors",
+          "- positioningHypothesis: max 28 words or null; a cautious hypothesis from visible messaging only",
+          "- messagingThemes: max 4 short themes visible in the site language",
+          "- websiteObservations: max 4 observations about proposition, proof, conversion path, navigation or trust cues",
+          "- marketingOpportunities: max 4 evidence-led ideas to test; phrase as hypotheses, never as guaranteed improvements",
           "- signals: max 3 objects with sourceIndex matching the supplied external signal candidate index, headline max 12 words, whyItMatters max 24 words"
         ].join("\n"),
         fallback,
@@ -266,6 +298,18 @@ export async function buildPublicCompanyPreview(env: Env, rawDomain: string): Pr
     commercialObservations: Array.isArray(ai.commercialObservations) ? ai.commercialObservations.slice(0, 3).map((x) => cleanPublicText(String(x), 300)).filter(Boolean) : [],
     commercialOpportunities: Array.isArray(ai.commercialOpportunities) ? ai.commercialOpportunities.slice(0, 3).map((x) => cleanPublicText(String(x), 300)).filter(Boolean) : [],
     comparisonCategories: Array.isArray(ai.comparisonCategories) ? ai.comparisonCategories.slice(0, 3).map((x) => cleanPublicText(String(x), 160)).filter(Boolean) : [],
+    marketingSnapshot: {
+      visualIdentity: {
+        themeColor: brandSignals?.themeColor || null,
+        colours: Array.isArray(brandSignals?.colours) ? brandSignals!.colours.slice(0, 6) : [],
+        fonts: Array.isArray(brandSignals?.fonts) ? brandSignals!.fonts.slice(0, 4) : []
+      },
+      positioningHypothesis: ai.positioningHypothesis ? cleanPublicText(String(ai.positioningHypothesis), 260) : null,
+      messagingThemes: Array.isArray(ai.messagingThemes) ? ai.messagingThemes.slice(0, 4).map((x) => cleanPublicText(String(x), 120)).filter(Boolean) : [],
+      websiteObservations: Array.isArray(ai.websiteObservations) ? ai.websiteObservations.slice(0, 4).map((x) => cleanPublicText(String(x), 260)).filter(Boolean) : [],
+      marketingOpportunities: Array.isArray(ai.marketingOpportunities) ? ai.marketingOpportunities.slice(0, 4).map((x) => cleanPublicText(String(x), 260)).filter(Boolean) : [],
+      evidenceStatus: pages.length >= 4 ? "Observed" : pages.length >= 2 ? "Partial" : "Limited"
+    },
     publicSignals,
     evidenceSources,
     evidenceCoverage,

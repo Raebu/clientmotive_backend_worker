@@ -101,6 +101,7 @@ export interface LeadIntake {
 export type ResearchStage =
   | "company_profile"
   | "competitive_landscape"
+  | "marketing_intelligence"
   | "market_channels"
   | "buyers_icp"
   | "target_accounts"
