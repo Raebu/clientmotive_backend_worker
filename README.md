@@ -5,7 +5,7 @@ A free-first Cloudflare backend that turns ClientMotive website intent and growt
 ## What it does
 
 The current backend is now split into three layers:
-- **Revenue Intelligence** — visitor intent, research, competitors, channels, buyers, scoring and dossiers
+- **Revenue Intelligence** — visitor intent, company/market research, full marketing intelligence, deep competitor intelligence, channels, buyers, scoring and dossiers
 - **Commercial OS** — account discovery, watchlists, outbound staging, opportunity conversion, subscriptions, referrals and learning
 - **Revenue Operations** — unified contacts/communications, CRM sync contracts, consent/suppression, attribution, forecasting, margin/capacity, deal risk, procurement/tenders, billing/e-sign hooks, onboarding/delivery, multi-tenancy/RBAC, human approvals, provenance, AI evaluation, budgets and exports
 
@@ -24,6 +24,8 @@ After a visitor submits:
 - links the prior anonymous journey
 - researches the company and its public website
 - discovers competitors and alternatives when a search provider is configured
+- builds a full marketing-intelligence report covering brand, visual/verbal identity, positioning, audience, messaging, website, SEO/content, social, paid/email/ABM, GTM, reputation, analytics/ops and governance
+- builds evidence-linked deep competitor profiles covering positioning, brand signals, offers/pricing, content/SEO, social, reputation, company moves, strengths/weaknesses, threat and white-space opportunities
 - recommends likely acquisition channels
 - maps the likely buying committee / ICP
 - discovers evidence-backed target accounts
@@ -148,6 +150,7 @@ The ClientMotive website Worker should:
 v0.1 is an implementation-ready backend. Cloudflare resources and production secrets still need to be created/bound before production deployment.
 
 See:
+- `docs/MARKETING_COMPETITOR_INTELLIGENCE.md`
 - `docs/ARCHITECTURE.md`
 - `docs/COST_MODEL.md`
 - `docs/PRIVACY_AND_ETHICS.md`
