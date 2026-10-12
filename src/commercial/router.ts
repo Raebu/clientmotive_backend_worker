@@ -197,6 +197,30 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
     if (!(await verifyPortalToken(env, clientPortal[1]!, token))) return error("Unauthorized.", 401);
     return json(await clientDashboard(env, clientPortal[1]!));
   }
+  const clientEvidence = path.match(/^\/v1\/client\/([^/]+)\/evidence$/);
+  if (clientEvidence && request.method === "GET") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientEvidence[1]!, token))) return error("Unauthorized.", 401);
+    return json(await evidenceViewer(env,{entityType:"account",entityId:clientEvidence[1]!}));
+  }
+  const clientAlerts = path.match(/^\/v1\/client\/([^/]+)\/alerts$/);
+  if (clientAlerts && request.method === "POST") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientAlerts[1]!, token))) return error("Unauthorized.", 401);
+    const body=await parsedJson(request);
+    return json(await setAlertPreference(env,{accountId:clientAlerts[1]!,channel:body.channel,destination:body.destination||null,signalTypes:Array.isArray(body.signalTypes)?body.signalTypes:[],minimumConfidence:Number(body.minimumConfidence||60),cadence:body.cadence||"immediate",enabled:body.enabled!==false,consent:body.consent||{}}),201);
+  }
+  const clientExport = path.match(/^\/v1\/client\/([^/]+)\/board-export$/);
+  if (clientExport && request.method === "GET") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientExport[1]!, token))) return error("Unauthorized.", 401);
+    const account=await env.DB.prepare("SELECT lead_id FROM commercial_accounts WHERE account_id=?").bind(clientExport[1]!).first<any>();
+    if(!account?.lead_id) return error("No Growth Snapshot is available for this account.",404);
+    const built=await createBoardReadyExport(env,{leadId:account.lead_id});
+    const format=(url.searchParams.get("format")||"pdf") as any;
+    const rendered=await renderDataExport(env,built.exportId,format);
+    return new Response(rendered.bytes,{status:200,headers:{"content-type":rendered.contentType,"content-disposition":`attachment; filename="clientmotive-growth-snapshot.${rendered.extension}"`,"cache-control":"private, no-store"}});
+  }
 
   const industry = path.match(/^\/v1\/industries\/([^/]+)$/);
   if (industry && request.method === "GET") {
