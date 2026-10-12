@@ -3,6 +3,7 @@ import { addSignal, scanDueWatchlists, nextBestAccounts } from "./acquisition";
 import { processDueNurture, rescueStaleOpportunities } from "./convert";
 import { generateBenchmark, generateContentAsset, harvestContentInsights } from "./learn";
 import { scoreHealthFromStoredMetrics } from "./growth";
+import { scanSubscribedIntelligence } from "./productisation";
 
 async function refreshHealthAndExpansionSignals(env: Env): Promise<{ refreshed: number; alerts: number }> {
   const accounts = await env.DB.prepare(
@@ -50,6 +51,7 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
   const health = await refreshHealthAndExpansionSignals(env);
   const contentInsights = await harvestContentInsights(env, 30);
   const priorities = await nextBestAccounts(env, 10);
+  const intelligenceMonitoring = await scanSubscribedIntelligence(env, 3);
 
   let weekly: Record<string, unknown> | null = null;
   if (new Date().getUTCDay() === 1) {
@@ -69,6 +71,7 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
     health,
     contentInsights,
     weekly,
+    intelligenceMonitoring,
     topPriorities: priorities.map((item) => ({
       accountId: item.accountId,
       name: item.name,

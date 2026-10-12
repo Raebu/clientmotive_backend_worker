@@ -3,6 +3,7 @@ import { id, isoNow } from "../lib/ids";
 import { hashValue, timingSafeEqual } from "../lib/security";
 import { nextBestAccounts } from "./acquisition";
 import type { NextBestAccount } from "./types";
+import { executivePriorityDashboard } from "./productisation";
 
 export async function createPortfolio(
   env: Env,
@@ -53,13 +54,14 @@ export async function verifyPortalToken(env: Env, accountId: string, token: stri
 }
 
 export async function clientDashboard(env: Env, accountId: string): Promise<Record<string, unknown>> {
-  const [account, portfolios, health, subscriptions] = await Promise.all([
+  const [account, portfolios, health, subscriptions, executive] = await Promise.all([
     env.DB.prepare("SELECT account_id,name,domain,segment,lifecycle_stage,tier FROM commercial_accounts WHERE account_id=?").bind(accountId).first<any>(),
     env.DB.prepare("SELECT * FROM account_portfolios WHERE owner_account_id=? AND status='active'").bind(accountId).all<any>(),
     env.DB.prepare("SELECT * FROM client_health WHERE account_id=?").bind(accountId).first<any>(),
     env.DB.prepare(
       "SELECT s.*,p.name AS product_name FROM subscriptions s JOIN commercial_products p ON p.product_code=s.product_code WHERE s.account_id=? AND s.status='active'"
-    ).bind(accountId).all<any>()
+    ).bind(accountId).all<any>(),
+    executivePriorityDashboard(env,{accountId})
   ]);
   if (!account) throw new Error("account_not_found");
   const portfolioData: Record<string, unknown>[] = [];
@@ -83,6 +85,7 @@ export async function clientDashboard(env: Env, accountId: string): Promise<Reco
     health: health || null,
     subscriptions: subscriptions.results,
     portfolios: portfolioData,
+    executive,
     generatedAt: isoNow()
   };
 }

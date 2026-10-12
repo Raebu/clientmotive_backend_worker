@@ -64,6 +64,18 @@ import {
 } from "./portal";
 import { buildMarketingCompetitorIntelligence, latestMarketingCompetitorIntelligence } from "./marketingIntelligence";
 import {
+  buildCommercialScorecard,
+  buildGrowthSnapshotV2,
+  createBoardReadyExport,
+  createRecommendation,
+  executivePriorityDashboard,
+  generateBattlecard,
+  ingestFirstPartyData,
+  publicCommercialOffers,
+  recordRecommendationOutcome,
+  scanIntelligenceChanges
+} from "./productisation";
+import {
   configureRoutingDestination,
   createSubscription,
   sendNewsletterAsset,
@@ -171,9 +183,10 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
 
   if (path === "/v1/products" && request.method === "GET") {
-    const rows = await env.DB.prepare("SELECT product_code,name,category,description,revenue_model,delivery_mode FROM commercial_products WHERE active=1 ORDER BY rowid").all();
-    return json({ products: rows.results });
+    const rows = await env.DB.prepare("SELECT product_code,name,category,description,revenue_model,delivery_mode,metadata_json FROM commercial_products WHERE active=1 ORDER BY rowid").all<any>();
+    return json({ products: rows.results.map((row:any)=>({ ...row, metadata: JSON.parse(row.metadata_json || "{}") })) });
   }
+  if (path === "/v1/offers" && request.method === "GET") return json({ offers: publicCommercialOffers() });
 
   const clientPortal = path.match(/^\/v1\/client\/([^/]+)\/dashboard$/);
   if (clientPortal && request.method === "GET") {
@@ -232,6 +245,42 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
 
   if (path === "/v1/admin/dashboard" && request.method === "GET") return json(await commercialDashboard(env));
+  if (path === "/v1/admin/dashboard/executive" && request.method === "GET") {
+    return json(await executivePriorityDashboard(env,{accountId:url.searchParams.get("account_id")}));
+  }
+  if (path === "/v1/admin/growth-snapshot-v2" && request.method === "POST") {
+    const body=await parsedJson(request);
+    if(!body.leadId) return error("leadId is required.",422);
+    return json(await buildGrowthSnapshotV2(env,{leadId:String(body.leadId),opportunityId:body.opportunityId?String(body.opportunityId):null}),201);
+  }
+  if (path === "/v1/admin/scorecards" && request.method === "POST") {
+    const body=await parsedJson(request);
+    if(!body.leadId && !body.accountId) return error("leadId or accountId is required.",422);
+    return json(await buildCommercialScorecard(env,{leadId:body.leadId?String(body.leadId):null,accountId:body.accountId?String(body.accountId):null}),201);
+  }
+  if (path === "/v1/admin/recommendations" && request.method === "POST") {
+    return json(await createRecommendation(env,await parsedJson(request)),201);
+  }
+  const recommendationOutcome=path.match(/^\/v1\/admin\/recommendations\/([^/]+)\/outcome$/);
+  if(recommendationOutcome && request.method==="POST") return json(await recordRecommendationOutcome(env,recommendationOutcome[1]!,await parsedJson(request)),201);
+  if (path === "/v1/admin/first-party/ingest" && request.method === "POST") {
+    return json(await ingestFirstPartyData(env,await parsedJson(request)),201);
+  }
+  if (path === "/v1/admin/exports/board-growth-snapshot" && request.method === "POST") {
+    const body=await parsedJson(request);
+    if(!body.leadId) return error("leadId is required.",422);
+    return json(await createBoardReadyExport(env,{leadId:String(body.leadId),opportunityId:body.opportunityId?String(body.opportunityId):null}),201);
+  }
+  if (path === "/v1/admin/intelligence/scan-account" && request.method === "POST") {
+    const body=await parsedJson(request);
+    if(!body.accountId) return error("accountId is required.",422);
+    return json(await scanIntelligenceChanges(env,{accountId:String(body.accountId)}),202);
+  }
+  const battlecard=path.match(/^\/v1\/admin\/competitors\/([^/]+)\/battlecard$/);
+  if(battlecard && request.method==="POST"){
+    const body=await parsedJson(request);
+    return json(await generateBattlecard(env,{competitorId:battlecard[1]!,accountId:body.accountId?String(body.accountId):null}),201);
+  }
   if (path === "/v1/admin/intelligence/marketing-competitor/analyse" && request.method === "POST") {
     const body = await parsedJson(request);
     if (!body.domain) return error("domain is required.", 422);
