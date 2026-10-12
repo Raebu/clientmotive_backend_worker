@@ -26,6 +26,7 @@ export interface Env {
   ALERT_EMAIL_FROM?: string;
   SLACK_WEBHOOK_URL?: string;
   HUBSPOT_ACCESS_TOKEN?: string;
+  CRM_CREDENTIAL_ENCRYPTION_KEY?: string;
   INTEGRATION_SHARED_SECRET?: string;
   CRM_WEBHOOK_SECRET?: string;
   INBOX_WEBHOOK_SECRET?: string;
