@@ -63,7 +63,7 @@ import {
   verifyPortalToken
 } from "./portal";
 import { buildMarketingCompetitorIntelligence, latestMarketingCompetitorIntelligence } from "./marketingIntelligence";
-import { buildOpportunityScenario, connectorContracts, deliverPendingAlerts, evidenceViewer, ingestFirstPartyBundle, prepareRecommendationExecution, recommendationExecutionHistory, setAlertPreference, synthesiseCommercialLearning, createStructuredExperiment } from "./completion";
+import { approveProofCandidate, buildOpportunityScenario, connectorContracts, deliverPendingAlerts, evidenceViewer, harvestProofCandidates, ingestFirstPartyBundle, prepareRecommendationExecution, proofCandidates, recommendationExecutionHistory, setAlertPreference, synthesiseCommercialLearning, createStructuredExperiment } from "./completion";
 import { executeApprovedRecommendation } from "./execution";
 import { renderDataExport } from "./reportRenderer";
 import {
@@ -285,6 +285,10 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
   if (path === "/v1/admin/experiments/structured" && request.method === "POST") return json(await createStructuredExperiment(env, await parsedJson(request)), 201);
   if (path === "/v1/admin/learning/synthesise" && request.method === "POST") return json(await synthesiseCommercialLearning(env), 201);
+  if (path === "/v1/admin/proof/harvest" && request.method === "POST") return json(await harvestProofCandidates(env,Number((await parsedJson(request)).limit||20)),201);
+  if (path === "/v1/admin/proof" && request.method === "GET") return json({proof:await proofCandidates(env,url.searchParams.get("status")||"draft")});
+  const proofApproval=path.match(/^\/v1\/admin\/proof\/([^/]+)\/approve$/);
+  if(proofApproval && request.method==="POST") return json(await approveProofCandidate(env,proofApproval[1]!,await parsedJson(request)));
   const prepareExecution=path.match(/^\/v1\/admin\/recommendations\/([^/]+)\/prepare-execution$/);
   if(prepareExecution && request.method==="POST") return json(await prepareRecommendationExecution(env,prepareExecution[1]!,await parsedJson(request)),201);
   const executionHistory=path.match(/^\/v1\/admin\/recommendations\/([^/]+)\/executions$/);

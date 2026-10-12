@@ -332,3 +332,76 @@ export async function prepareRecommendationExecution(env:Env,recommendationId:st
   ).bind(executionId,recommendationId,input.actionType,JSON.stringify(input.payload||{}),input.approvedBy?"approved":"prepared",input.approvedBy||null,isoNow()).run();
   return {executionId,status:input.approvedBy?"approved":"prepared",externalActionAllowed:false};
 }
+
+
+export async function harvestProofCandidates(env:Env,limit=20){
+  const rows=await env.DB.prepare(
+    `SELECT o.opportunity_id,o.account_id,o.name AS opportunity_name,a.name AS account_name,a.segment,
+      oo.outcome_id,oo.outcome_type,oo.value,oo.reason,oo.details_json,oo.occurred_at
+     FROM opportunity_outcomes oo
+     JOIN opportunities o ON o.opportunity_id=oo.opportunity_id
+     JOIN commercial_accounts a ON a.account_id=o.account_id
+     WHERE oo.outcome_type IN ('won','expanded','renewed')
+     ORDER BY oo.occurred_at DESC LIMIT ?`
+  ).bind(Math.max(1,Math.min(100,limit))).all<any>();
+  let created=0;
+  for(const row of rows.results){
+    const existing=await env.DB.prepare("SELECT proof_id FROM proof_candidates WHERE opportunity_id=? AND json_extract(proof_json,'$.sourceOutcomeId')=? LIMIT 1")
+      .bind(row.opportunity_id,row.outcome_id).first();
+    if(existing) continue;
+    const recommendationOutcomes=await env.DB.prepare(
+      `SELECT r.recommendation_text,r.category,ro.outcome_type,ro.numeric_value,ro.details_json,ro.recorded_at
+       FROM commercial_recommendations r JOIN recommendation_outcomes ro ON ro.recommendation_id=r.recommendation_id
+       WHERE r.opportunity_id=? ORDER BY ro.recorded_at`
+    ).bind(row.opportunity_id).all<any>();
+    const experiments=await env.DB.prepare(
+      `SELECT e.name,e.hypothesis,e.primary_metric,e.success_criteria,r.variant,r.metric,r.numeric_value,r.outcome,r.recorded_at
+       FROM experiment_results r JOIN commercial_experiments e ON e.experiment_id=r.experiment_id
+       WHERE r.opportunity_id=? ORDER BY r.recorded_at`
+    ).bind(row.opportunity_id).all<any>();
+    const proof={
+      sourceOutcomeId:row.outcome_id,
+      account:row.account_name,
+      segment:row.segment||null,
+      outcomeType:row.outcome_type,
+      recordedValue:row.value===null?null:Number(row.value),
+      outcomeReason:row.reason||null,
+      outcomeDetails:safeJson(row.details_json,{}),
+      recommendationOutcomes:recommendationOutcomes.results,
+      experiments:experiments.results,
+      occurredAt:row.occurred_at,
+      publicationRule:"Draft evidence only. Client approval and publication approval are both required before external use."
+    };
+    const evidence=[
+      "outcome:"+row.outcome_id,
+      ...recommendationOutcomes.results.map((_:any,i:number)=>"recommendation_outcome:"+i),
+      ...experiments.results.map((_:any,i:number)=>"experiment_result:"+i)
+    ];
+    await env.DB.prepare(
+      `INSERT INTO proof_candidates
+       (proof_id,account_id,opportunity_id,title,proof_json,evidence_json,status,client_approved,publication_approved,created_at,updated_at)
+       VALUES (?,?,?,?,?,?,'draft',0,0,?,?)`
+    ).bind(id("proof"),row.account_id,row.opportunity_id,String(row.account_name+" — verified commercial outcome").slice(0,240),JSON.stringify(proof),JSON.stringify(evidence),isoNow(),isoNow()).run();
+    created++;
+  }
+  return {reviewed:rows.results.length,created,note:"No proof candidate is externally publishable without client approval and separate publication approval."};
+}
+
+export async function proofCandidates(env:Env,status="draft"){
+  const rows=await env.DB.prepare(
+    "SELECT * FROM proof_candidates WHERE status=? ORDER BY created_at DESC LIMIT 100"
+  ).bind(status).all<any>();
+  return rows.results.map(r=>({...r,proof:safeJson(r.proof_json,{}),evidence:safeJson(r.evidence_json,[])}));
+}
+
+export async function approveProofCandidate(env:Env,proofId:string,input:{clientApproved?:boolean;publicationApproved?:boolean;status?:string}){
+  const row=await env.DB.prepare("SELECT * FROM proof_candidates WHERE proof_id=?").bind(proofId).first<any>();
+  if(!row) throw new Error("proof_not_found");
+  const clientApproved=input.clientApproved===undefined?Boolean(row.client_approved):input.clientApproved;
+  const publicationApproved=input.publicationApproved===undefined?Boolean(row.publication_approved):input.publicationApproved;
+  const status=input.status||((clientApproved&&publicationApproved)?"approved":"draft");
+  await env.DB.prepare(
+    "UPDATE proof_candidates SET client_approved=?,publication_approved=?,status=?,updated_at=? WHERE proof_id=?"
+  ).bind(clientApproved?1:0,publicationApproved?1:0,status,isoNow(),proofId).run();
+  return {proofId,clientApproved,publicationApproved,status,publishable:clientApproved&&publicationApproved&&status==="approved"};
+}

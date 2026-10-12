@@ -103,3 +103,22 @@ CREATE INDEX IF NOT EXISTS idx_alert_preferences_account ON alert_preferences(ac
 CREATE INDEX IF NOT EXISTS idx_alert_deliveries_status ON alert_deliveries(status,created_at);
 CREATE INDEX IF NOT EXISTS idx_commercial_learnings_dimension ON commercial_learnings(dimension,segment,confidence DESC);
 CREATE INDEX IF NOT EXISTS idx_recommendation_executions_rec ON recommendation_executions(recommendation_id,created_at DESC);
+
+
+CREATE TABLE IF NOT EXISTS proof_candidates (
+  proof_id TEXT PRIMARY KEY,
+  tenant_id TEXT NOT NULL DEFAULT 'tenant_clientmotive',
+  account_id TEXT,
+  opportunity_id TEXT,
+  title TEXT NOT NULL,
+  proof_json TEXT NOT NULL,
+  evidence_json TEXT NOT NULL DEFAULT '[]',
+  status TEXT NOT NULL DEFAULT 'draft',
+  client_approved INTEGER NOT NULL DEFAULT 0,
+  publication_approved INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL,
+  FOREIGN KEY (account_id) REFERENCES commercial_accounts(account_id) ON DELETE SET NULL,
+  FOREIGN KEY (opportunity_id) REFERENCES opportunities(opportunity_id) ON DELETE SET NULL
+);
+CREATE INDEX IF NOT EXISTS idx_proof_candidates_status ON proof_candidates(status,client_approved,publication_approved,created_at DESC);
