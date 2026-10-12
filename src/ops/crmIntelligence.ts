@@ -205,7 +205,7 @@ async function linkRecord(env:Env,conn:Connection,entityType:string,localId:stri
   const now=isoNow();
   await env.DB.prepare(
     `INSERT INTO crm_record_links (link_id,connection_id,entity_type,local_id,external_id,external_updated_at,last_seen_at,metadata_json)
-     VALUES (?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?)
      ON CONFLICT(connection_id,entity_type,external_id) DO UPDATE SET local_id=excluded.local_id,external_updated_at=excluded.external_updated_at,last_seen_at=excluded.last_seen_at,metadata_json=excluded.metadata_json`
   ).bind(id("crmlink"),conn.connection_id,entityType,localId,externalId,externalUpdatedAt||null,now,JSON.stringify(metadata)).run();
 }
@@ -612,4 +612,17 @@ export async function crmIntelligenceSummary(env:Env,connectionId:string){
     lastAudit:lastAudit?{...safeJson(lastAudit.audit_json,{}),auditId:lastAudit.audit_id,createdAt:lastAudit.created_at}:null,
     stakeholderGaps:gaps.results,proposals:proposals.results,executedChanges:Number(audit?.count||0)
   };
+}
+
+
+export async function runScheduledCrmCycles(env:Env,limit=3){
+  const rows=await env.DB.prepare(
+    "SELECT connection_id,provider,label,operating_mode FROM crm_connections WHERE status='active' AND operating_mode IN ('managed','autonomous') ORDER BY COALESCE(last_pull_at,'1970-01-01') ASC LIMIT ?"
+  ).bind(Math.max(1,Math.min(10,limit))).all<any>();
+  const results:any[]=[];
+  for(const row of rows.results){
+    try{results.push(await runCrmIntelligenceCycle(env,row.connection_id));}
+    catch(error){results.push({connectionId:row.connection_id,provider:row.provider,status:"failed",error:String(error).slice(0,240)});}
+  }
+  return {checked:rows.results.length,results};
 }
