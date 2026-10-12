@@ -76,7 +76,8 @@ import {
   ingestBillingWebhook,
   ingestCrmWebhook,
   ingestEsignWebhook,
-  ingestInboxWebhook
+  ingestInboxWebhook,
+  ingestFirstPartyWebhook
 } from "./adapters";
 import { crmDelta, syncStates, updateSyncState } from "./sync";
 
@@ -123,6 +124,9 @@ export async function routeOps(request:Request,env:Env):Promise<Response|null>{
   }
   if(path==="/v1/integrations/esign" && request.method==="POST"){
     try{return json(await ingestEsignWebhook(env,request),202);}catch(e){return error(String(e).includes("unauthorized")?"Unauthorized.":"Integration failed.",String(e).includes("unauthorized")?401:422);}
+  }
+  if(path==="/v1/integrations/first-party" && request.method==="POST"){
+    try{return json(await ingestFirstPartyWebhook(env,request),202);}catch(e){return error(String(e).includes("unauthorized")?"Unauthorized.":"Integration failed.",String(e).includes("unauthorized")?401:422);}
   }
 
   const partnerPortalMatch=path.match(/^\/v1\/partner\/([^/]+)\/dashboard$/);

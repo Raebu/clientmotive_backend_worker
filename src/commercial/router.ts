@@ -63,6 +63,9 @@ import {
   verifyPortalToken
 } from "./portal";
 import { buildMarketingCompetitorIntelligence, latestMarketingCompetitorIntelligence } from "./marketingIntelligence";
+import { approveProofCandidate, buildOpportunityScenario, connectorContracts, deliverPendingAlerts, evidenceViewer, harvestProofCandidates, ingestFirstPartyBundle, prepareRecommendationExecution, proofCandidates, recommendationExecutionHistory, setAlertPreference, synthesiseCommercialLearning, createStructuredExperiment } from "./completion";
+import { executeApprovedRecommendation } from "./execution";
+import { renderDataExport } from "./reportRenderer";
 import {
   buildCommercialScorecard,
   buildGrowthSnapshotV2,
@@ -194,6 +197,30 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
     if (!(await verifyPortalToken(env, clientPortal[1]!, token))) return error("Unauthorized.", 401);
     return json(await clientDashboard(env, clientPortal[1]!));
   }
+  const clientEvidence = path.match(/^\/v1\/client\/([^/]+)\/evidence$/);
+  if (clientEvidence && request.method === "GET") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientEvidence[1]!, token))) return error("Unauthorized.", 401);
+    return json(await evidenceViewer(env,{entityType:"account",entityId:clientEvidence[1]!}));
+  }
+  const clientAlerts = path.match(/^\/v1\/client\/([^/]+)\/alerts$/);
+  if (clientAlerts && request.method === "POST") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientAlerts[1]!, token))) return error("Unauthorized.", 401);
+    const body=await parsedJson(request);
+    return json(await setAlertPreference(env,{accountId:clientAlerts[1]!,channel:body.channel,destination:body.destination||null,signalTypes:Array.isArray(body.signalTypes)?body.signalTypes:[],minimumConfidence:Number(body.minimumConfidence||60),cadence:body.cadence||"immediate",enabled:body.enabled!==false,consent:body.consent||{}}),201);
+  }
+  const clientExport = path.match(/^\/v1\/client\/([^/]+)\/board-export$/);
+  if (clientExport && request.method === "GET") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientExport[1]!, token))) return error("Unauthorized.", 401);
+    const account=await env.DB.prepare("SELECT lead_id FROM commercial_accounts WHERE account_id=?").bind(clientExport[1]!).first<any>();
+    if(!account?.lead_id) return error("No Growth Snapshot is available for this account.",404);
+    const built=await createBoardReadyExport(env,{leadId:account.lead_id});
+    const format=(url.searchParams.get("format")||"pdf") as any;
+    const rendered=await renderDataExport(env,built.exportId,format);
+    return new Response(rendered.bytes,{status:200,headers:{"content-type":rendered.contentType,"content-disposition":`attachment; filename="clientmotive-growth-snapshot.${rendered.extension}"`,"cache-control":"private, no-store"}});
+  }
 
   const industry = path.match(/^\/v1\/industries\/([^/]+)$/);
   if (industry && request.method === "GET") {
@@ -245,6 +272,37 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
 
   if (path === "/v1/admin/dashboard" && request.method === "GET") return json(await commercialDashboard(env));
+  if (path === "/v1/admin/connectors/contracts" && request.method === "GET") return json({ connectors: connectorContracts() });
+  if (path === "/v1/admin/first-party/import-bundle" && request.method === "POST") return json(await ingestFirstPartyBundle(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/opportunity-scenarios" && request.method === "POST") return json(await buildOpportunityScenario(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/alerts/preferences" && request.method === "POST") return json(await setAlertPreference(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/alerts/deliver" && request.method === "POST") return json(await deliverPendingAlerts(env, Number((await parsedJson(request)).limit || 30)), 202);
+  if (path === "/v1/admin/evidence" && request.method === "GET") {
+    const entityType=url.searchParams.get("type") as "account"|"lead"|"recommendation"|null;
+    const entityId=url.searchParams.get("id");
+    if(!entityType||!entityId) return error("type and id are required.",422);
+    return json(await evidenceViewer(env,{entityType,entityId}));
+  }
+  if (path === "/v1/admin/experiments/structured" && request.method === "POST") return json(await createStructuredExperiment(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/learning/synthesise" && request.method === "POST") return json(await synthesiseCommercialLearning(env), 201);
+  if (path === "/v1/admin/proof/harvest" && request.method === "POST") return json(await harvestProofCandidates(env,Number((await parsedJson(request)).limit||20)),201);
+  if (path === "/v1/admin/proof" && request.method === "GET") return json({proof:await proofCandidates(env,url.searchParams.get("status")||"draft")});
+  const proofApproval=path.match(/^\/v1\/admin\/proof\/([^/]+)\/approve$/);
+  if(proofApproval && request.method==="POST") return json(await approveProofCandidate(env,proofApproval[1]!,await parsedJson(request)));
+  const prepareExecution=path.match(/^\/v1\/admin\/recommendations\/([^/]+)\/prepare-execution$/);
+  if(prepareExecution && request.method==="POST") return json(await prepareRecommendationExecution(env,prepareExecution[1]!,await parsedJson(request)),201);
+  const executionHistory=path.match(/^\/v1\/admin\/recommendations\/([^/]+)\/executions$/);
+  if(executionHistory && request.method==="GET") return json({executions:await recommendationExecutionHistory(env,executionHistory[1]!)});
+  const runExecution=path.match(/^\/v1\/admin\/recommendation-executions\/([^/]+)\/run$/);
+  if(runExecution && request.method==="POST") return json(await executeApprovedRecommendation(env,runExecution[1]!),202);
+  const renderExport=path.match(/^\/v1\/admin\/exports\/([^/]+)\/render$/);
+  if(renderExport && request.method==="GET"){
+    const format=(url.searchParams.get("format")||"pdf") as any;
+    try{
+      const rendered=await renderDataExport(env,renderExport[1]!,format);
+      return new Response(rendered.bytes,{status:200,headers:{"content-type":rendered.contentType,"content-disposition":`attachment; filename="clientmotive-${renderExport[1]}.${rendered.extension}"`,"cache-control":"private, no-store"}});
+    }catch(e){return error(String(e).includes("not_found")?"Export not found.":"Unable to render export.",String(e).includes("not_found")?404:422);}
+  }
   if (path === "/v1/admin/dashboard/executive" && request.method === "GET") {
     return json(await executivePriorityDashboard(env,{accountId:url.searchParams.get("account_id")}));
   }
