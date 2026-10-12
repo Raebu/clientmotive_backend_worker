@@ -240,7 +240,7 @@ export async function generateBattlecard(env:Env,input:{competitorId:string;acco
 }
 
 export async function buildGrowthSnapshotV2(env:Env,input:{leadId:string;opportunityId?:string|null}){
-  const [lead,profile,competitors,buyers,targets,signals,report,scorecard] = await Promise.all([
+  const [lead,profile,competitors,buyers,targets,signals,report,scorecard,learnings] = await Promise.all([
     env.DB.prepare("SELECT * FROM leads WHERE lead_id=?").bind(input.leadId).first<any>(),
     env.DB.prepare("SELECT * FROM company_profiles WHERE lead_id=?").bind(input.leadId).first<any>(),
     env.DB.prepare("SELECT * FROM competitors WHERE lead_id=? LIMIT 10").bind(input.leadId).all<any>(),
@@ -248,7 +248,8 @@ export async function buildGrowthSnapshotV2(env:Env,input:{leadId:string;opportu
     env.DB.prepare("SELECT * FROM target_accounts WHERE lead_id=? LIMIT 20").bind(input.leadId).all<any>(),
     env.DB.prepare(`SELECT s.* FROM commercial_signals s JOIN commercial_accounts a ON a.account_id=s.account_id WHERE a.lead_id=? ORDER BY captured_at DESC LIMIT 20`).bind(input.leadId).all<any>(),
     latestMarketingCompetitorIntelligence(env,{leadId:input.leadId}),
-    buildCommercialScorecard(env,{leadId:input.leadId})
+    buildCommercialScorecard(env,{leadId:input.leadId}),
+    env.DB.prepare("SELECT dimension,pattern_key,learning_json,sample_size,confidence,status FROM commercial_learnings WHERE status IN (\'observed\',\'provisional\') ORDER BY confidence DESC,sample_size DESC LIMIT 12").all<any>()
   ]);
   if(!lead) throw new Error("lead_not_found");
   const quantifiedOpportunity=await buildOpportunityScenario(env,{leadId:input.leadId});
@@ -264,6 +265,7 @@ export async function buildGrowthSnapshotV2(env:Env,input:{leadId:string;opportu
     signals:signals.results.slice(0,8).map((x:any)=>({title:x.title,detail:x.detail,sourceUrl:x.source_url,confidence:x.confidence})),
     opportunities:strList((report?.report as any)?.opportunities,8),
     quantifiedOpportunity,
+    learningContext:learnings.results.map((row:any)=>({dimension:row.dimension,patternKey:row.pattern_key,learning:safeJson(row.learning_json,{}),sampleSize:row.sample_size,confidence:row.confidence,status:row.status})),
     risks:strList((report?.report as any)?.risks,8),
     ninetyDayPlan:[
       {phase:"0–30 days",objective:"Validate the highest-value opportunity and evidence gaps.",actions:["Confirm ICP and buyer ownership","Validate competitive position","Connect available first-party data"]},
@@ -286,13 +288,13 @@ COMPETITORS: ${JSON.stringify(competitors.results)}
 BUYERS: ${JSON.stringify(buyers.results)}
 TARGET ACCOUNTS: ${JSON.stringify(targets.results)}
 RECENT SIGNALS: ${JSON.stringify(signals.results)}
-SCORECARD: ${JSON.stringify(scorecard)}
-Return executiveSummary, opportunitySummary, keyMarketFinding, competitorLandscape, marketingFinding, priorityAccounts[], buyerMap[], signals[], opportunities[], risks[], ninetyDayPlan[{phase,objective,actions[]}], scorecard, evidenceAppendix[], assumptions[], humanDecisionRequired=true.`,
+SCORECARD: ${JSON.stringify(scorecard)}\nHISTORICAL COMMERCIAL LEARNINGS: ${JSON.stringify(learnings.results)}\nUse historical learnings only when sample size and confidence justify it; label provisional patterns clearly.\nReturn executiveSummary, opportunitySummary, keyMarketFinding, competitorLandscape, marketingFinding, priorityAccounts[], buyerMap[], signals[], opportunities[], risks[], ninetyDayPlan[{phase,objective,actions[]}], scorecard, evidenceAppendix[], assumptions[], humanDecisionRequired=true.`,
     fallback,
     3600
   );
   snapshot.scorecard=scorecard;
   snapshot.quantifiedOpportunity=quantifiedOpportunity;
+  snapshot.learningContext=learnings.results.map((row:any)=>({dimension:row.dimension,patternKey:row.pattern_key,learning:safeJson(row.learning_json,{}),sampleSize:row.sample_size,confidence:row.confidence,status:row.status}));
   snapshot.humanDecisionRequired=true;
   const documentId=await saveDocument(env,{leadId:input.leadId,opportunityId:input.opportunityId,type:"growth_snapshot_v2",title:"ClientMotive Growth Snapshot — "+lead.company,content:snapshot});
 

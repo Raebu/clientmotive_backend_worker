@@ -4,7 +4,7 @@ import { processDueNurture, rescueStaleOpportunities } from "./convert";
 import { generateBenchmark, generateContentAsset, harvestContentInsights } from "./learn";
 import { scoreHealthFromStoredMetrics } from "./growth";
 import { scanSubscribedIntelligence } from "./productisation";
-import { deliverPendingAlerts, synthesiseCommercialLearning } from "./completion";
+import { deliverPendingAlerts, harvestProofCandidates, synthesiseCommercialLearning } from "./completion";
 
 async function refreshHealthAndExpansionSignals(env: Env): Promise<{ refreshed: number; alerts: number }> {
   const accounts = await env.DB.prepare(
@@ -64,7 +64,8 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
       ? await generateContentAsset(env, { assetType: "newsletter", audience: "B2B commercial leaders", limit: 12 })
       : null;
     const learning = await synthesiseCommercialLearning(env);
-    weekly = { benchmark, content, learning };
+    const proof = await harvestProofCandidates(env,50);
+    weekly = { benchmark, content, learning, proof };
   }
 
   return {
