@@ -63,6 +63,9 @@ import {
   verifyPortalToken
 } from "./portal";
 import { buildMarketingCompetitorIntelligence, latestMarketingCompetitorIntelligence } from "./marketingIntelligence";
+import { buildOpportunityScenario, connectorContracts, deliverPendingAlerts, evidenceViewer, ingestFirstPartyBundle, prepareRecommendationExecution, recommendationExecutionHistory, setAlertPreference, synthesiseCommercialLearning, createStructuredExperiment } from "./completion";
+import { executeApprovedRecommendation } from "./execution";
+import { renderDataExport } from "./reportRenderer";
 import {
   buildCommercialScorecard,
   buildGrowthSnapshotV2,
@@ -245,6 +248,33 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
 
   if (path === "/v1/admin/dashboard" && request.method === "GET") return json(await commercialDashboard(env));
+  if (path === "/v1/admin/connectors/contracts" && request.method === "GET") return json({ connectors: connectorContracts() });
+  if (path === "/v1/admin/first-party/import-bundle" && request.method === "POST") return json(await ingestFirstPartyBundle(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/opportunity-scenarios" && request.method === "POST") return json(await buildOpportunityScenario(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/alerts/preferences" && request.method === "POST") return json(await setAlertPreference(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/alerts/deliver" && request.method === "POST") return json(await deliverPendingAlerts(env, Number((await parsedJson(request)).limit || 30)), 202);
+  if (path === "/v1/admin/evidence" && request.method === "GET") {
+    const entityType=url.searchParams.get("type") as "account"|"lead"|"recommendation"|null;
+    const entityId=url.searchParams.get("id");
+    if(!entityType||!entityId) return error("type and id are required.",422);
+    return json(await evidenceViewer(env,{entityType,entityId}));
+  }
+  if (path === "/v1/admin/experiments/structured" && request.method === "POST") return json(await createStructuredExperiment(env, await parsedJson(request)), 201);
+  if (path === "/v1/admin/learning/synthesise" && request.method === "POST") return json(await synthesiseCommercialLearning(env), 201);
+  const prepareExecution=path.match(/^\/v1\/admin\/recommendations\/([^/]+)\/prepare-execution$/);
+  if(prepareExecution && request.method==="POST") return json(await prepareRecommendationExecution(env,prepareExecution[1]!,await parsedJson(request)),201);
+  const executionHistory=path.match(/^\/v1\/admin\/recommendations\/([^/]+)\/executions$/);
+  if(executionHistory && request.method==="GET") return json({executions:await recommendationExecutionHistory(env,executionHistory[1]!)});
+  const runExecution=path.match(/^\/v1\/admin\/recommendation-executions\/([^/]+)\/run$/);
+  if(runExecution && request.method==="POST") return json(await executeApprovedRecommendation(env,runExecution[1]!),202);
+  const renderExport=path.match(/^\/v1\/admin\/exports\/([^/]+)\/render$/);
+  if(renderExport && request.method==="GET"){
+    const format=(url.searchParams.get("format")||"pdf") as any;
+    try{
+      const rendered=await renderDataExport(env,renderExport[1]!,format);
+      return new Response(rendered.bytes,{status:200,headers:{"content-type":rendered.contentType,"content-disposition":`attachment; filename="clientmotive-${renderExport[1]}.${rendered.extension}"`,"cache-control":"private, no-store"}});
+    }catch(e){return error(String(e).includes("not_found")?"Export not found.":"Unable to render export.",String(e).includes("not_found")?404:422);}
+  }
   if (path === "/v1/admin/dashboard/executive" && request.method === "GET") {
     return json(await executivePriorityDashboard(env,{accountId:url.searchParams.get("account_id")}));
   }

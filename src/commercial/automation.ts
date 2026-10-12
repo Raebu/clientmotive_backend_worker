@@ -4,6 +4,7 @@ import { processDueNurture, rescueStaleOpportunities } from "./convert";
 import { generateBenchmark, generateContentAsset, harvestContentInsights } from "./learn";
 import { scoreHealthFromStoredMetrics } from "./growth";
 import { scanSubscribedIntelligence } from "./productisation";
+import { deliverPendingAlerts, synthesiseCommercialLearning } from "./completion";
 
 async function refreshHealthAndExpansionSignals(env: Env): Promise<{ refreshed: number; alerts: number }> {
   const accounts = await env.DB.prepare(
@@ -52,6 +53,7 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
   const contentInsights = await harvestContentInsights(env, 30);
   const priorities = await nextBestAccounts(env, 10);
   const intelligenceMonitoring = await scanSubscribedIntelligence(env, 3);
+  const alerting = await deliverPendingAlerts(env, 50);
 
   let weekly: Record<string, unknown> | null = null;
   if (new Date().getUTCDay() === 1) {
@@ -61,7 +63,8 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
     const content = env.AI && Number(insightCount?.count || 0) >= 5
       ? await generateContentAsset(env, { assetType: "newsletter", audience: "B2B commercial leaders", limit: 12 })
       : null;
-    weekly = { benchmark, content };
+    const learning = await synthesiseCommercialLearning(env);
+    weekly = { benchmark, content, learning };
   }
 
   return {
@@ -72,6 +75,7 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
     contentInsights,
     weekly,
     intelligenceMonitoring,
+    alerting,
     topPriorities: priorities.map((item) => ({
       accountId: item.accountId,
       name: item.name,
