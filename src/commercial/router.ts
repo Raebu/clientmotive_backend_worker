@@ -204,6 +204,21 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
     if (!(await verifyPortalToken(env, clientEvidence[1]!, token))) return error("Unauthorized.", 401);
     return json(await evidenceViewer(env,{entityType:"account",entityId:clientEvidence[1]!}));
   }
+  const clientMarketing = path.match(/^\/v1\/client\/([^/]+)\/marketing$/);
+  if (clientMarketing && request.method === "GET") {
+    const token = url.searchParams.get("token") || "";
+    if (!(await verifyPortalToken(env, clientMarketing[1]!, token))) return error("Unauthorized.", 401);
+    const account = await env.DB.prepare(
+      "SELECT domain,lead_id FROM commercial_accounts WHERE account_id=?"
+    ).bind(clientMarketing[1]!).first<any>();
+    if (!account) return error("Not found.", 404);
+    const report = await latestMarketingCompetitorIntelligence(env, {
+      domain: account.domain || null,
+      leadId: account.lead_id || null
+    });
+    return json({ report: report || null });
+  }
+
   const clientAlerts = path.match(/^\/v1\/client\/([^/]+)\/alerts$/);
   if (clientAlerts && request.method === "POST") {
     const token = url.searchParams.get("token") || "";
