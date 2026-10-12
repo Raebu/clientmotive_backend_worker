@@ -39,8 +39,9 @@ function policy(conn:Connection){
 }
 
 async function cryptoKey(env:Env){
-  if(!env.CRM_CREDENTIAL_ENCRYPTION_KEY) throw new Error("crm_encryption_key_not_configured");
-  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(env.CRM_CREDENTIAL_ENCRYPTION_KEY));
+  const secret=env.CRM_CREDENTIAL_ENCRYPTION_KEY || env.INTEGRATION_SHARED_SECRET || env.WEBSITE_SHARED_SECRET;
+  if(!secret) throw new Error("crm_encryption_key_not_configured");
+  const digest=await crypto.subtle.digest("SHA-256",new TextEncoder().encode(secret));
   return crypto.subtle.importKey("raw",digest,{name:"AES-GCM"},false,["encrypt","decrypt"]);
 }
 async function encryptCredentials(env:Env,value:Record<string,unknown>){
