@@ -420,7 +420,7 @@ export async function enrichCrmAccounts(env:Env,connectionId:string,limit=50){
   let researched=0,proposals=0;
   for(const account of rows.results){
     if(!account.domain)continue;
-    try{await enrichCompanyWaterfall(env,{accountId:account.account_id,domain:account.domain});researched++;}catch{}
+    try{await enrichCompanyWaterfall(env,{accountId:account.account_id,domain:account.domain,companyName:account.name});researched++;}catch{}
     const facts=await env.DB.prepare(
       `SELECT field_name,field_value_json,source_name,source_url,confidence,observed_at FROM enrichment_facts
        WHERE entity_type='account' AND entity_id=? AND status='active' AND (expires_at IS NULL OR expires_at>?) ORDER BY confidence DESC,observed_at DESC`
@@ -518,7 +518,7 @@ async function materialiseMissingContact(env:Env,conn:Connection,proposal:any){
   if(!after.verified||!after.email)throw new Error("missing_contact_not_verified");
   const account=await env.DB.prepare("SELECT domain FROM commercial_accounts WHERE account_id=?").bind(proposal.account_id).first<any>();
   const domain=normalizeDomain(account?.domain),emailDomain=normalizeDomain(String(after.email).split("@")[1]||"");
-  if(!domain||!(emailDomain===domain||emailDomain.endsWith("."+domain)))throw new Error("contact_email_not_corporate_domain");
+  if(!domain||!emailDomain||!(emailDomain===domain||emailDomain.endsWith("."+domain)))throw new Error("contact_email_not_corporate_domain");
   const contactId=await upsertContact(env,{tenantId:conn.tenant_id,accountId:proposal.account_id,fullName:after.fullName,email:after.email,title:after.title||null,linkedinUrl:after.linkedinUrl||null,source:"clientmotive_crm_enrichment",confidence:proposal.confidence,metadata:{roleType:after.roleType,crmProposalId:proposal.proposal_id}});
   proposal.contact_id=contactId;
   return contactId;
