@@ -5,6 +5,7 @@ import { generateBenchmark, generateContentAsset, harvestContentInsights } from 
 import { scoreHealthFromStoredMetrics } from "./growth";
 import { scanSubscribedIntelligence } from "./productisation";
 import { deliverPendingAlerts, harvestProofCandidates, synthesiseCommercialLearning } from "./completion";
+import { runScheduledCrmCycles } from "../ops/crmIntelligence";
 
 async function refreshHealthAndExpansionSignals(env: Env): Promise<{ refreshed: number; alerts: number }> {
   const accounts = await env.DB.prepare(
@@ -54,6 +55,7 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
   const priorities = await nextBestAccounts(env, 10);
   const intelligenceMonitoring = await scanSubscribedIntelligence(env, 3);
   const alerting = await deliverPendingAlerts(env, 50);
+  const crmIntelligence = await runScheduledCrmCycles(env, 3);
 
   let weekly: Record<string, unknown> | null = null;
   if (new Date().getUTCDay() === 1) {
@@ -77,6 +79,7 @@ export async function runDailyCommercialAutomation(env: Env): Promise<Record<str
     weekly,
     intelligenceMonitoring,
     alerting,
+    crmIntelligence,
     topPriorities: priorities.map((item) => ({
       accountId: item.accountId,
       name: item.name,

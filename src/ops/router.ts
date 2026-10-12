@@ -80,6 +80,7 @@ import {
   ingestFirstPartyWebhook
 } from "./adapters";
 import { crmDelta, syncStates, updateSyncState } from "./sync";
+import { approveCrmProposal, auditCrmConnection, createCrmConnection, crmAuditTrail, crmConnections, crmIntelligenceSummary, crmProposals, crmProviderCapabilities, detectStakeholderGaps, enrichCrmAccounts, executeCrmProposal, executeEligibleProposals, importCrmSnapshot, pullCrmConnection, researchStakeholderGaps, runCrmIntelligenceCycle, updateCrmConnection } from "./crmIntelligence";
 
 async function parseJson(request:Request,maxBytes=150_000):Promise<any>{
   const raw=await request.text();
@@ -413,6 +414,88 @@ export async function routeOps(request:Request,env:Env):Promise<Response|null>{
   if(path==="/v1/ops/crm/delta" && request.method==="GET"){
     const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
     return json(await crmDelta(env,{tenantId:tenantHeaders(request).tenantId,since:url.searchParams.get("since"),limit:Number(url.searchParams.get("limit") || "200")}));
+  }
+  if(path==="/v1/ops/crm-intelligence/providers" && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json({providers:crmProviderCapabilities()});
+  }
+  if(path==="/v1/ops/crm-intelligence/connections" && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json({connections:await crmConnections(env,tenantHeaders(request).tenantId)});
+  }
+  if(path==="/v1/ops/crm-intelligence/connections" && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    return json(await createCrmConnection(env,{tenantId:tenantHeaders(request).tenantId,...await parseJson(request)}),201);
+  }
+  const crmConn=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)$/);
+  if(crmConn && request.method==="PATCH"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    return json(await updateCrmConnection(env,crmConn[1]!,await parseJson(request)));
+  }
+  const crmPull=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/pull$/);
+  if(crmPull && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    return json(await pullCrmConnection(env,crmPull[1]!),202);
+  }
+  const crmImport=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/import$/);
+  if(crmImport && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    return json(await importCrmSnapshot(env,crmImport[1]!,await parseJson(request,2_000_000)),202);
+  }
+  const crmAudit=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/audit$/);
+  if(crmAudit && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:research"); if(denied) return denied;
+    return json(await auditCrmConnection(env,crmAudit[1]!),201);
+  }
+  const crmEnrich=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/enrich$/);
+  if(crmEnrich && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:research"); if(denied) return denied;
+    const body=await parseJson(request);return json(await enrichCrmAccounts(env,crmEnrich[1]!,Number(body.limit||50)),202);
+  }
+  const crmGaps=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/stakeholder-gaps$/);
+  if(crmGaps && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:research"); if(denied) return denied;
+    const body=await parseJson(request);return json(await detectStakeholderGaps(env,crmGaps[1]!,body.accountId||null),201);
+  }
+  const crmGapResearch=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/research-gaps$/);
+  if(crmGapResearch && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:research"); if(denied) return denied;
+    const body=await parseJson(request);return json(await researchStakeholderGaps(env,crmGapResearch[1]!,Number(body.limit||25)),202);
+  }
+  const crmCycle=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/run$/);
+  if(crmCycle && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:research"); if(denied) return denied;
+    return json(await runCrmIntelligenceCycle(env,crmCycle[1]!),202);
+  }
+  const crmSummary=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/summary$/);
+  if(crmSummary && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json(await crmIntelligenceSummary(env,crmSummary[1]!));
+  }
+  const crmProposalsMatch=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/proposals$/);
+  if(crmProposalsMatch && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json({proposals:await crmProposals(env,crmProposalsMatch[1]!,url.searchParams.get("status"))});
+  }
+  const crmTrail=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/audit-trail$/);
+  if(crmTrail && request.method==="GET"){
+    const denied=await requireOps(request,env,"read:commercial"); if(denied) return denied;
+    return json({changes:await crmAuditTrail(env,crmTrail[1]!,Number(url.searchParams.get("limit")||200))});
+  }
+  const crmExecuteEligible=path.match(/^\/v1\/ops\/crm-intelligence\/connections\/([^/]+)\/execute-eligible$/);
+  if(crmExecuteEligible && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    const body=await parseJson(request);return json(await executeEligibleProposals(env,crmExecuteEligible[1]!,Number(body.limit||100),tenantHeaders(request).subjectId||"admin"),202);
+  }
+  const crmApprove=path.match(/^\/v1\/ops\/crm-intelligence\/proposals\/([^/]+)\/approve$/);
+  if(crmApprove && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    return json(await approveCrmProposal(env,crmApprove[1]!,tenantHeaders(request).subjectId||"admin"));
+  }
+  const crmExecute=path.match(/^\/v1\/ops\/crm-intelligence\/proposals\/([^/]+)\/execute$/);
+  if(crmExecute && request.method==="POST"){
+    const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
+    return json(await executeCrmProposal(env,crmExecute[1]!,tenantHeaders(request).subjectId||"admin"),202);
   }
   if(path==="/v1/ops/sync-state" && request.method==="POST"){
     const denied=await requireOps(request,env,"write:accounts"); if(denied) return denied;
