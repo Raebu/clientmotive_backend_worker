@@ -66,6 +66,7 @@ import { buildMarketingCompetitorIntelligence, latestMarketingCompetitorIntellig
 import { approveProofCandidate, buildOpportunityScenario, connectorContracts, deliverPendingAlerts, evidenceViewer, harvestProofCandidates, ingestFirstPartyBundle, prepareRecommendationExecution, proofCandidates, recommendationExecutionHistory, setAlertPreference, synthesiseCommercialLearning, createStructuredExperiment } from "./completion";
 import { executeApprovedRecommendation } from "./execution";
 import { renderDataExport } from "./reportRenderer";
+import { approveCrmProposal, auditCrmConnection, createCrmConnection, crmAuditTrail, crmConnections, crmIntelligenceSummary, crmProposals, crmProviderCapabilities, executeCrmProposal, executeEligibleProposals, runCrmIntelligenceCycle, updateCrmConnection } from "../ops/crmIntelligence";
 import {
   buildCommercialScorecard,
   buildGrowthSnapshotV2,
@@ -272,6 +273,27 @@ export async function routeCommercial(request: Request, env: Env): Promise<Respo
   }
 
   if (path === "/v1/admin/dashboard" && request.method === "GET") return json(await commercialDashboard(env));
+  if (path === "/v1/admin/crm-intelligence/providers" && request.method === "GET") return json({providers:crmProviderCapabilities()});
+  if (path === "/v1/admin/crm-intelligence/connections" && request.method === "GET") return json({connections:await crmConnections(env)});
+  if (path === "/v1/admin/crm-intelligence/connections" && request.method === "POST") return json(await createCrmConnection(env,await parsedJson(request)),201);
+  const adminCrmConnection=path.match(/^\/v1\/admin\/crm-intelligence\/connections\/([^/]+)$/);
+  if(adminCrmConnection && request.method==="PATCH") return json(await updateCrmConnection(env,adminCrmConnection[1]!,await parsedJson(request)));
+  const adminCrmAudit=path.match(/^\/v1\/admin\/crm-intelligence\/connections\/([^/]+)\/audit$/);
+  if(adminCrmAudit && request.method==="POST") return json(await auditCrmConnection(env,adminCrmAudit[1]!),201);
+  const adminCrmRun=path.match(/^\/v1\/admin\/crm-intelligence\/connections\/([^/]+)\/run$/);
+  if(adminCrmRun && request.method==="POST") return json(await runCrmIntelligenceCycle(env,adminCrmRun[1]!),202);
+  const adminCrmSummary=path.match(/^\/v1\/admin\/crm-intelligence\/connections\/([^/]+)\/summary$/);
+  if(adminCrmSummary && request.method==="GET") return json(await crmIntelligenceSummary(env,adminCrmSummary[1]!));
+  const adminCrmProposals=path.match(/^\/v1\/admin\/crm-intelligence\/connections\/([^/]+)\/proposals$/);
+  if(adminCrmProposals && request.method==="GET") return json({proposals:await crmProposals(env,adminCrmProposals[1]!,url.searchParams.get("status"))});
+  const adminCrmTrail=path.match(/^\/v1\/admin\/crm-intelligence\/connections\/([^/]+)\/audit-trail$/);
+  if(adminCrmTrail && request.method==="GET") return json({changes:await crmAuditTrail(env,adminCrmTrail[1]!,Number(url.searchParams.get("limit")||200))});
+  const adminCrmExecuteEligible=path.match(/^\/v1\/admin\/crm-intelligence\/connections\/([^/]+)\/execute-eligible$/);
+  if(adminCrmExecuteEligible && request.method==="POST") return json(await executeEligibleProposals(env,adminCrmExecuteEligible[1]!,Number((await parsedJson(request)).limit||100),"command_centre"),202);
+  const adminCrmApprove=path.match(/^\/v1\/admin\/crm-intelligence\/proposals\/([^/]+)\/approve$/);
+  if(adminCrmApprove && request.method==="POST") return json(await approveCrmProposal(env,adminCrmApprove[1]!,"command_centre"));
+  const adminCrmExecute=path.match(/^\/v1\/admin\/crm-intelligence\/proposals\/([^/]+)\/execute$/);
+  if(adminCrmExecute && request.method==="POST") return json(await executeCrmProposal(env,adminCrmExecute[1]!,"command_centre"),202);
   if (path === "/v1/admin/connectors/contracts" && request.method === "GET") return json({ connectors: connectorContracts() });
   if (path === "/v1/admin/first-party/import-bundle" && request.method === "POST") return json(await ingestFirstPartyBundle(env, await parsedJson(request)), 201);
   if (path === "/v1/admin/opportunity-scenarios" && request.method === "POST") return json(await buildOpportunityScenario(env, await parsedJson(request)), 201);
