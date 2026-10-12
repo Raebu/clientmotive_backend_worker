@@ -2,6 +2,7 @@ import type { Env } from "../types";
 import { id, isoNow } from "../lib/ids";
 import { aiJson } from "../services/ai";
 import { buildMarketingCompetitorIntelligence, latestMarketingCompetitorIntelligence } from "./marketingIntelligence";
+import { buildOpportunityScenario, classifyLatestIntelligenceChanges } from "./completion";
 
 type ScoreDimension = {
   key: string;
@@ -250,6 +251,7 @@ export async function buildGrowthSnapshotV2(env:Env,input:{leadId:string;opportu
     buildCommercialScorecard(env,{leadId:input.leadId})
   ]);
   if(!lead) throw new Error("lead_not_found");
+  const quantifiedOpportunity=await buildOpportunityScenario(env,{leadId:input.leadId});
 
   const fallback={
     executiveSummary:lead.outcome||lead.problem,
@@ -261,6 +263,7 @@ export async function buildGrowthSnapshotV2(env:Env,input:{leadId:string;opportu
     buyerMap:buyers.results.slice(0,7).map((x:any)=>({role:x.role,type:x.role_type,pain:x.pain,trigger:x.trigger_text})),
     signals:signals.results.slice(0,8).map((x:any)=>({title:x.title,detail:x.detail,sourceUrl:x.source_url,confidence:x.confidence})),
     opportunities:strList((report?.report as any)?.opportunities,8),
+    quantifiedOpportunity,
     risks:strList((report?.report as any)?.risks,8),
     ninetyDayPlan:[
       {phase:"0–30 days",objective:"Validate the highest-value opportunity and evidence gaps.",actions:["Confirm ICP and buyer ownership","Validate competitive position","Connect available first-party data"]},
@@ -289,6 +292,7 @@ Return executiveSummary, opportunitySummary, keyMarketFinding, competitorLandsca
     3600
   );
   snapshot.scorecard=scorecard;
+  snapshot.quantifiedOpportunity=quantifiedOpportunity;
   snapshot.humanDecisionRequired=true;
   const documentId=await saveDocument(env,{leadId:input.leadId,opportunityId:input.opportunityId,type:"growth_snapshot_v2",title:"ClientMotive Growth Snapshot — "+lead.company,content:snapshot});
 
@@ -333,7 +337,10 @@ export async function scanIntelligenceChanges(env:Env,input:{accountId:string}){
     opportunities:(fresh.report as any).opportunities,
     risks:(fresh.report as any).risks
   };
-  if(await fingerprint(beforeShape)===await fingerprint(afterShape)) return {accountId:account.account_id,changed:false,reportId:fresh.reportId};
+  if(await fingerprint(beforeShape)===await fingerprint(afterShape)){
+    const specialist=await classifyLatestIntelligenceChanges(env,account.account_id);
+    return {accountId:account.account_id,changed:specialist.classified>0,changeCount:specialist.classified,specialist,reportId:fresh.reportId};
+  }
 
   const diff=await aiJson<any>(
     env,
@@ -342,7 +349,10 @@ export async function scanIntelligenceChanges(env:Env,input:{accountId:string}){
     {material:true,changes:[{type:"intelligence_refresh",title:"Commercial intelligence changed",detail:"The refreshed evidence produced a materially different intelligence view. Human review is required.",confidence:50,evidence:fresh.evidence.slice(0,8)}],executiveImplication:"Review the refreshed report before changing commercial action."},
     1400
   );
-  if(diff.material===false) return {accountId:account.account_id,changed:false,reportId:fresh.reportId};
+  if(diff.material===false){
+    const specialist=await classifyLatestIntelligenceChanges(env,account.account_id);
+    return {accountId:account.account_id,changed:specialist.classified>0,changeCount:specialist.classified,specialist,reportId:fresh.reportId};
+  }
 
   const changes=Array.isArray(diff.changes)?diff.changes.slice(0,8):[];
   for(const change of changes){
@@ -356,7 +366,8 @@ export async function scanIntelligenceChanges(env:Env,input:{accountId:string}){
       JSON.stringify(beforeShape),JSON.stringify(afterShape),JSON.stringify(strList(change.evidence,20)),clamp(Number(change.confidence||50)),isoNow()
     ).run();
   }
-  return {accountId:account.account_id,changed:true,changeCount:changes.length,executiveImplication:diff.executiveImplication||null,reportId:fresh.reportId};
+  const specialist=await classifyLatestIntelligenceChanges(env,account.account_id);
+  return {accountId:account.account_id,changed:true,changeCount:changes.length+specialist.classified,genericChangeCount:changes.length,specialist,executiveImplication:diff.executiveImplication||null,reportId:fresh.reportId};
 }
 
 export async function scanSubscribedIntelligence(env:Env,limit=3){
@@ -415,7 +426,7 @@ export async function createBoardReadyExport(env:Env,input:{leadId:string;opport
       {title:"Where the opportunity is",content:{opportunitySummary:snapshot.opportunitySummary,keyMarketFinding:snapshot.keyMarketFinding}},
       {title:"Competitive and marketing position",content:{competitorLandscape:snapshot.competitorLandscape,marketingFinding:snapshot.marketingFinding}},
       {title:"Who and when",content:{priorityAccounts:snapshot.priorityAccounts,buyerMap:snapshot.buyerMap,signals:snapshot.signals}},
-      {title:"What to do next",content:{ninetyDayPlan:snapshot.ninetyDayPlan,scorecard:snapshot.scorecard}},
+      {title:"What to do next",content:{ninetyDayPlan:snapshot.ninetyDayPlan,scorecard:snapshot.scorecard,quantifiedOpportunity:snapshot.quantifiedOpportunity}},
       {title:"Evidence and assumptions",content:{evidenceAppendix:snapshot.evidenceAppendix,assumptions:snapshot.assumptions}}
     ],
     note:"Structured export payload ready for PDF, presentation or document renderer. External publication remains human-approved."
