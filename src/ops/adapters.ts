@@ -4,6 +4,7 @@ import { ingestCommunication, upsertContact } from "./crm";
 import { recordBillingEvent, recordAgreement } from "./lifecycle";
 import { updateProviderHealth } from "./governance";
 import { updateSelfServiceOrder } from "./product";
+import { ingestFirstPartyBundle } from "../commercial/completion";
 
 async function verifySecret(request:Request,raw:string,secret?:string):Promise<boolean>{
   if(!secret) return false;
@@ -80,4 +81,21 @@ export async function ingestEsignWebhook(env:Env,request:Request):Promise<Record
   });
   await updateProviderHealth(env,{provider:String(body.provider || "esign"),ok:true});
   return {agreementId};
+}
+
+
+export async function ingestFirstPartyWebhook(env:Env,request:Request):Promise<Record<string,unknown>>{
+  const raw=await request.text();
+  if(!(await verifySecret(request,raw,env.INTEGRATION_SHARED_SECRET))) throw new Error("unauthorized");
+  const body=JSON.parse(raw) as any;
+  if(!body.accountId || !body.sourceType) throw new Error("invalid_first_party_payload");
+  return ingestFirstPartyBundle(env,{
+    accountId:String(body.accountId),
+    sourceType:String(body.sourceType),
+    periodStart:body.periodStart || null,
+    periodEnd:body.periodEnd || null,
+    metrics:body.metrics || {},
+    records:Array.isArray(body.records)?body.records:[],
+    provenance:{...(body.provenance || {}),integration:"signed_first_party_webhook"}
+  });
 }
