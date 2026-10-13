@@ -252,7 +252,7 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
   const supplied = await hashValue(token);
   if (!timingSafeEqual(supplied, lead.public_token_hash)) return error("Invalid token.", 401, "unauthorized");
 
-  const [dossier, profile, competitors, buyers, channels, targets, actions, evidenceCount, targetCount, competitorCount, buyerCount, signalCount] = await Promise.all([
+  const [dossier, profile, competitors, buyers, channels, targets, actions, evidenceCount, targetCount, competitorCount, buyerCount, signalCount, capacity] = await Promise.all([
     env.DB.prepare("SELECT dossier_json, prospect_snapshot_json, generated_at FROM dossiers WHERE lead_id = ?")
       .bind(leadId).first<{ dossier_json:string; prospect_snapshot_json:string; generated_at:string }>(),
     env.DB.prepare("SELECT company_name, summary FROM company_profiles WHERE lead_id = ?")
@@ -276,7 +276,8 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
     env.DB.prepare("SELECT COUNT(*) AS count FROM target_accounts WHERE lead_id=?").bind(leadId).first<any>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM competitors WHERE lead_id=?").bind(leadId).first<any>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM buyer_roles WHERE lead_id=?").bind(leadId).first<any>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM commercial_signals s JOIN commercial_accounts a ON a.account_id=s.account_id WHERE a.lead_id=?").bind(leadId).first<any>().catch(()=>({count:0}))
+    env.DB.prepare("SELECT COUNT(*) AS count FROM commercial_signals s JOIN commercial_accounts a ON a.account_id=s.account_id WHERE a.lead_id=?").bind(leadId).first<any>().catch(()=>({count:0})),
+    env.DB.prepare("SELECT recommended_offer,price_floor_gbp,target_price_gbp,price_ceiling_gbp FROM commercial_capacity_profiles WHERE lead_id=?").bind(leadId).first<any>()
   ]);
 
   const dossierJson = dossier ? JSON.parse(dossier.dossier_json || "{}") : {};
@@ -297,6 +298,13 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
     || snapshot?.observations?.[0]
     || null;
 
+  const offerLabels: Record<string,string> = {
+    starter_signal: "Focused Growth Signal",
+    growth_snapshot: "Growth Snapshot",
+    growth_snapshot_plus: "Growth Snapshot Plus",
+    enterprise_intelligence: "Enterprise Growth Intelligence"
+  };
+
   return json({
     leadId,
     company: lead.company,
@@ -314,6 +322,13 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
       channel: topChannel,
       competitiveGap,
       firstMove: topAction,
+      offerRoute: capacity ? {
+        code: capacity.recommended_offer,
+        label: offerLabels[capacity.recommended_offer] || "Growth Snapshot",
+        priceFromGbp: Number(capacity.price_floor_gbp || 0),
+        targetPriceGbp: Number(capacity.target_price_gbp || 0),
+        priceToGbp: Number(capacity.price_ceiling_gbp || 0)
+      } : null,
       counts: {
         targetAccounts: Number(targetCount?.count || 0),
         competitors: Number(competitorCount?.count || 0),
