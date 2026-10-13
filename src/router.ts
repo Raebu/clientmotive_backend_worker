@@ -250,56 +250,83 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
   const supplied = await hashValue(token);
   if (!timingSafeEqual(supplied, lead.public_token_hash)) return error("Invalid token.", 401, "unauthorized");
 
-  const [dossier, profile, competitors, buyers, channels, targets, actions, marketingCompetitive] = await Promise.all([
-    env.DB.prepare("SELECT prospect_snapshot_json, generated_at FROM dossiers WHERE lead_id = ?")
-      .bind(leadId).first<{ prospect_snapshot_json: string; generated_at: string }>(),
+  const [dossier, profile, competitors, buyers, channels, targets, actions, evidenceCount, targetCount, competitorCount, buyerCount, signalCount] = await Promise.all([
+    env.DB.prepare("SELECT dossier_json, prospect_snapshot_json, generated_at FROM dossiers WHERE lead_id = ?")
+      .bind(leadId).first<{ dossier_json:string; prospect_snapshot_json:string; generated_at:string }>(),
     env.DB.prepare("SELECT company_name, summary FROM company_profiles WHERE lead_id = ?")
-      .bind(leadId).first<{ company_name: string; summary: string }>(),
+      .bind(leadId).first<{ company_name:string; summary:string }>(),
     env.DB.prepare(
-      "SELECT name,website,competitor_type,summary,differentiation_opportunity FROM competitors WHERE lead_id=? ORDER BY competitor_type,name LIMIT 6"
+      "SELECT name,website,competitor_type,summary,differentiation_opportunity FROM competitors WHERE lead_id=? ORDER BY competitor_type,name LIMIT 1"
     ).bind(leadId).all<any>(),
     env.DB.prepare(
-      "SELECT role,role_type,pain,trigger_text,message_angle FROM buyer_roles WHERE lead_id=? ORDER BY role_type,role LIMIT 6"
+      "SELECT role,role_type,pain,trigger_text,message_angle FROM buyer_roles WHERE lead_id=? ORDER BY CASE role_type WHEN 'champion' THEN 1 WHEN 'economic_buyer' THEN 2 ELSE 3 END,role LIMIT 1"
     ).bind(leadId).all<any>(),
     env.DB.prepare(
-      "SELECT channel,priority,role_text,why_text,first_experiment FROM channel_recommendations WHERE lead_id=? ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END LIMIT 6"
+      "SELECT channel,priority,role_text,why_text,first_experiment FROM channel_recommendations WHERE lead_id=? ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END LIMIT 1"
     ).bind(leadId).all<any>(),
     env.DB.prepare(
-      "SELECT company,website,rationale,buyer_roles_json FROM target_accounts WHERE lead_id=? LIMIT 6"
+      "SELECT company,website,rationale,buyer_roles_json FROM target_accounts WHERE lead_id=? LIMIT 2"
     ).bind(leadId).all<any>(),
     env.DB.prepare(
-      "SELECT action_text,owner,priority,reason FROM next_actions WHERE lead_id=? AND status='open' ORDER BY CASE priority WHEN 'now' THEN 1 WHEN 'next' THEN 2 ELSE 3 END LIMIT 8"
+      "SELECT action_text,owner,priority,reason FROM next_actions WHERE lead_id=? AND status='open' ORDER BY CASE priority WHEN 'now' THEN 1 WHEN 'next' THEN 2 ELSE 3 END LIMIT 1"
     ).bind(leadId).all<any>(),
-    latestMarketingCompetitorIntelligence(env, { leadId })
+    env.DB.prepare("SELECT COUNT(*) AS count FROM research_evidence WHERE lead_id=?").bind(leadId).first<any>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM target_accounts WHERE lead_id=?").bind(leadId).first<any>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM competitors WHERE lead_id=?").bind(leadId).first<any>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM buyer_roles WHERE lead_id=?").bind(leadId).first<any>(),
+    env.DB.prepare("SELECT COUNT(*) AS count FROM commercial_signals WHERE lead_id=?").bind(leadId).first<any>().catch(()=>({count:0}))
   ]);
+
+  const dossierJson = dossier ? JSON.parse(dossier.dossier_json || "{}") : {};
+  const snapshot = dossier ? JSON.parse(dossier.prospect_snapshot_json || "{}") : null;
+  const topCompetitor = competitors.results[0] || null;
+  const topBuyer = buyers.results[0] || null;
+  const topChannel = channels.results[0] || null;
+  const topAction = actions.results[0] || null;
+  const accountRows = targets.results.map((row:any)=>({
+    company: row.company,
+    website: row.website,
+    rationale: row.rationale,
+    buyerRoles: JSON.parse(row.buyer_roles_json || "[]")
+  }));
+
+  const competitiveGap = topCompetitor?.differentiation_opportunity
+    || dossierJson.opportunityThesis
+    || snapshot?.observations?.[0]
+    || null;
 
   return json({
     leadId,
     company: lead.company,
     domain: lead.domain || null,
     researchStatus: lead.research_status,
-    snapshot: dossier ? JSON.parse(dossier.prospect_snapshot_json) : null,
+    ready: Boolean(dossier),
+    snapshot,
     companySummary: dossier ? profile?.summary || null : null,
-    marketView: dossier ? {
-      competitors: competitors.results,
-      buyers: buyers.results,
-      channels: channels.results,
-      targetAccounts: targets.results.map((row:any)=>({
-        company: row.company,
-        website: row.website,
-        rationale: row.rationale,
-        buyerRoles: JSON.parse(row.buyer_roles_json || "[]")
-      })),
-      nextActions: actions.results,
-      marketingCompetitive: marketingCompetitive ? {
-        executiveSummary: marketingCompetitive.report.executiveSummary,
-        competitiveLandscape: marketingCompetitive.report.competitiveLandscape,
-        opportunities: marketingCompetitive.report.opportunities,
-        priorities: marketingCompetitive.report.priorities,
-        evidenceGaps: marketingCompetitive.report.evidenceGaps,
-        confidence: marketingCompetitive.confidence,
-        evidenceCoverage: marketingCompetitive.evidenceCoverage
-      } : null
+    teaser: dossier ? {
+      executiveSummary: dossierJson.executiveSummary || null,
+      opportunityThesis: dossierJson.opportunityThesis || null,
+      targetAccounts: accountRows,
+      competitor: topCompetitor,
+      buyer: topBuyer,
+      channel: topChannel,
+      competitiveGap,
+      firstMove: topAction,
+      counts: {
+        targetAccounts: Number(targetCount?.count || 0),
+        competitors: Number(competitorCount?.count || 0),
+        buyers: Number(buyerCount?.count || 0),
+        evidence: Number(evidenceCount?.count || 0),
+        signals: Number(signalCount?.count || 0)
+      },
+      locked: {
+        targetAccounts: Math.max(0, Number(targetCount?.count || 0) - accountRows.length),
+        competitors: Math.max(0, Number(competitorCount?.count || 0) - (topCompetitor ? 1 : 0)),
+        buyers: Math.max(0, Number(buyerCount?.count || 0) - (topBuyer ? 1 : 0)),
+        fullEvidenceTrail: true,
+        opportunityMap: true,
+        ninetyDayPlan: true
+      }
     } : null,
     updatedAt: dossier?.generated_at || lead.updated_at
   });
