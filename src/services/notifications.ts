@@ -1,6 +1,7 @@
 import type { Env, ScoreBreakdown } from "../types";
 import type { LeadRow } from "../db";
 import { id, isoNow } from "../lib/ids";
+import { renderProspectTeaserPdf } from "../commercial/reportRenderer";
 
 async function record(env: Env, leadId: string, channel: string, status: string, providerId: string | null, error: string | null) {
   await env.DB.prepare(
@@ -11,6 +12,14 @@ async function record(env: Env, leadId: string, channel: string, status: string,
 const parseJson = <T>(value: unknown, fallback: T): T => {
   try { return value ? JSON.parse(String(value)) as T : fallback; } catch { return fallback; }
 };
+
+
+function bytesToBase64(bytes: Uint8Array): string {
+  let out="";
+  const chunk=0x8000;
+  for(let i=0;i<bytes.length;i+=chunk) out += String.fromCharCode(...bytes.subarray(i,Math.min(i+chunk,bytes.length)));
+  return btoa(out);
+}
 
 const esc = (value: unknown) => String(value ?? "")
   .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
@@ -134,6 +143,79 @@ export async function notifyLeadReady(
       await record(env, lead.lead_id, "email", response.ok ? "sent" : "failed", body.id || null, response.ok ? null : "resend_" + response.status);
     } catch (error) {
       await record(env, lead.lead_id, "email", "failed", null, String(error).slice(0, 500));
+    }
+  }
+
+  if (env.RESEND_API_KEY && lead.email) {
+    try {
+      const teaserPdf=await renderProspectTeaserPdf({
+        company:lead.company,
+        headline:snapshot.headline || dossierJson.executiveSummary || null,
+        observations:Array.isArray(snapshot.observations)?snapshot.observations.slice(0,3):[],
+        competitor:competitors.results[0] ? {
+          name:competitors.results[0].name,
+          summary:competitors.results[0].summary,
+          differentiationOpportunity:competitors.results[0].differentiation_opportunity
+        } : null,
+        buyer:buyers.results[0] ? {
+          role:buyers.results[0].role,
+          pain:buyers.results[0].pain,
+          trigger:buyers.results[0].trigger_text,
+          messageAngle:buyers.results[0].message_angle
+        } : null,
+        channel:channels.results[0] ? {
+          channel:channels.results[0].channel,
+          why:channels.results[0].why_text || channels.results[0].role_text,
+          firstExperiment:channels.results[0].first_experiment
+        } : null
+      });
+      const firstName=String(lead.name||"").trim().split(/\\s+/)[0] || "there";
+      const customerSubject=`Your ClientMotive growth signal is ready - ${lead.company}`;
+      const customerText=[
+        `Hi ${firstName},`,
+        "",
+        "Your initial ClientMotive growth signal is ready.",
+        "",
+        "We have attached a focused first-look report. It gives you several useful signals from the research without replacing the deeper decision-ready work in the full Growth Snapshot.",
+        "",
+        "If the initial signal is useful, the full Growth Snapshot expands this into the complete market, competitor, buyer, target-account, evidence and 90-day action view.",
+        "",
+        "Full Growth Snapshot: £1,500-£3,000",
+        "https://www.clientmotive.com/offers/",
+        "",
+        "Regards,",
+        "ClientMotive"
+      ].join("\\n");
+      const customerHtml=`<div style="font-family:Arial,Helvetica,sans-serif;max-width:640px;margin:auto;color:#0b1736;line-height:1.6">
+        <p style="font-size:13px;font-weight:700;color:#0064f0;letter-spacing:.08em;text-transform:uppercase">ClientMotive</p>
+        <h1 style="font-size:30px;line-height:1.15;margin:18px 0">Your growth signal is ready.</h1>
+        <p>Hi ${esc(firstName)},</p>
+        <p>We have attached a focused first-look report based on your brief and the evidence collected so far.</p>
+        <p>It is designed to be genuinely useful now, while keeping the deeper market, competitor, buyer, target-account and action analysis for the full Growth Snapshot.</p>
+        <div style="margin:28px 0;padding:22px;background:#f4f7fb;border-radius:14px">
+          <strong>Want the complete decision-ready view?</strong><br>
+          Full ClientMotive Growth Snapshot · £1,500-£3,000
+        </div>
+        <p><a href="https://www.clientmotive.com/offers/" style="display:inline-block;background:#0668f7;color:white;text-decoration:none;font-weight:700;padding:13px 20px;border-radius:999px">Explore the full Growth Snapshot →</a></p>
+        <p style="margin-top:30px">Regards,<br><strong>ClientMotive</strong></p>
+      </div>`;
+      const response=await fetch("https://api.resend.com/emails",{
+        method:"POST",
+        headers:{authorization:"Bearer "+env.RESEND_API_KEY,"content-type":"application/json"},
+        body:JSON.stringify({
+          from:env.ALERT_EMAIL_FROM || "ClientMotive <clientmotive@clientmotive.com>",
+          to:[lead.email],
+          reply_to:env.ALERT_EMAIL_TO || "contact@clientmotive.com",
+          subject:customerSubject,
+          text:customerText,
+          html:customerHtml,
+          attachments:[{filename:"ClientMotive-Growth-Signal.pdf",content:bytesToBase64(teaserPdf)}]
+        })
+      });
+      const body=await response.json().catch(()=>({})) as {id?:string};
+      await record(env,lead.lead_id,"prospect_email",response.ok?"sent":"failed",body.id||null,response.ok?null:"resend_"+response.status);
+    } catch(error) {
+      await record(env,lead.lead_id,"prospect_email","failed",null,String(error).slice(0,500));
     }
   }
 
