@@ -75,10 +75,10 @@ async function pptx(content:any){
   for(const [i,section] of contentSections(content).entries()){
     const slide=presentation.addSlide();
     slide.background={color:i===0?"0B1736":"FFFFFF"};
-    slide.addText(section.title,{x:0.6,y:0.55,w:12.1,h:0.65,fontFace:"Aptos",fontSize:i===0?28:24,bold:true,color:i===0?"FFFFFF":"0B1736",margin:0});
+    slide.addText(section.title,{x:0.6,y:0.55,width:12.1,height:0.65,fontFace:"Aptos",fontSize:i===0?28:24,bold:true,color:i===0?"FFFFFF":"0B1736",margin:0});
     const lines=safe(section.body).split("\n").filter(Boolean).slice(0,18).map(t=>({text:t,options:{bullet:{indent:14},hanging:3,breakLine:true}}));
-    if(lines.length) slide.addText(lines as any,{x:0.75,y:1.5,w:11.8,h:5.3,fontFace:"Aptos",fontSize:14,color:i===0?"DDE7F5":"33445C",breakLine:false,margin:0.05,valign:"top"});
-    slide.addText("ClientMotive · Evidence-led commercial intelligence",{x:0.75,y:7.05,w:5,h:0.2,fontFace:"Aptos",fontSize:7,color:i===0?"9FB4D1":"71839A",margin:0});
+    if(lines.length) slide.addText(lines as any,{x:0.75,y:1.5,width:11.8,height:5.3,fontFace:"Aptos",fontSize:14,color:i===0?"DDE7F5":"33445C",breakLine:false,margin:0.05,valign:"top"});
+    slide.addText("ClientMotive · Evidence-led commercial intelligence",{x:0.75,y:7.05,width:5,height:0.2,fontFace:"Aptos",fontSize:7,color:i===0?"9FB4D1":"71839A",margin:0});
   }
   const out=await (presentation as any).write({outputType:"arraybuffer"});
   return new Uint8Array(out as ArrayBuffer);
@@ -140,7 +140,7 @@ export async function renderProspectTeaserPdf(input:{
   };
   const card=(page:any,y:number,index:string,heading:string,body:string)=>{
     const h=116;
-    page.drawRectangle({x:46,y:y-h,w:503,h,color:pale,borderColor:line,borderWidth:0.7});
+    page.drawRectangle({x:46,y:y-h,width:503,h,color:pale,borderColor:line,borderWidth:0.7});
     page.drawText(index,{x:62,y:y-29,size:10,font:bold,color:blue});
     page.drawText(heading.slice(0,66),{x:96,y:y-29,size:14.5,font:bold,color:ink});
     let yy=y-55;
@@ -151,7 +151,7 @@ export async function renderProspectTeaserPdf(input:{
   // Cover
   {
     const page=doc.addPage([W,H]);
-    page.drawRectangle({x:0,y:0,w:W,h:H,color:white});
+    page.drawRectangle({x:0,y:0,width:W,height:H,color:white});
     page.drawText("ClientMotive",{x:46,y:786,size:12,font:bold,color:navy});
     page.drawText("INITIAL COMMERCIAL INTELLIGENCE",{x:46,y:716,size:9,font:bold,color:blue});
     page.drawText("Your growth",{x:46,y:632,size:43,font:bold,color:navy});
@@ -161,7 +161,7 @@ export async function renderProspectTeaserPdf(input:{
     for(const ln of wrap(input.headline||"A focused first look at where the commercial opportunity may be.",54).slice(0,4)){
       page.drawText(ln,{x:46,y,size:16,font:regular,color:ink});y-=23;
     }
-    page.drawRectangle({x:46,y:245,w:503,h:160,color:pale});
+    page.drawRectangle({x:46,y:245,width:503,height:160,color:pale});
     page.drawText("PREPARED FOR",{x:66,y:372,size:8.5,font:bold,color:muted});
     page.drawText(company.slice(0,48),{x:66,y:329,size:25,font:bold,color:navy});
     page.drawText("Useful now. Deliberately not the whole answer.",{x:66,y:292,size:11.5,font:regular,color:muted});
@@ -201,7 +201,7 @@ export async function renderProspectTeaserPdf(input:{
   // Upgrade
   {
     const page=doc.addPage([W,H]);
-    page.drawRectangle({x:0,y:0,w:W,h:H,color:navy});
+    page.drawRectangle({x:0,y:0,width:W,height:H,color:navy});
     page.drawText("GO DEEPER",{x:46,y:770,size:9,font:bold,color:rgb(0.36,0.65,1)});
     page.drawText("Turn the signal",{x:46,y:707,size:35,font:bold,color:white});
     page.drawText("into a decision.",{x:46,y:665,size:35,font:bold,color:rgb(0.36,0.65,1)});
@@ -220,7 +220,7 @@ export async function renderProspectTeaserPdf(input:{
       page.drawText("0"+(i+1),{x:46,y:yy,size:9,font:bold,color:rgb(0.36,0.65,1)});
       page.drawText(x,{x:82,y:yy,size:12,font:regular,color:white}); yy-=39;
     });
-    page.drawRectangle({x:46,y:138,w:503,h:92,color:blue});
+    page.drawRectangle({x:46,y:138,width:503,height:92,color:blue});
     page.drawText("UNLOCK THE FULL GROWTH SNAPSHOT",{x:67,y:194,size:9,font:bold,color:white});
     page.drawText("£1,500-£3,000",{x:67,y:160,size:22,font:bold,color:white});
     page.drawText("clientmotive.com/offers/",{x:350,y:165,size:11,font:bold,color:white});
