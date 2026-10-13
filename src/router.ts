@@ -45,6 +45,7 @@ function validateLead(body: LeadIntake): LeadIntake | null {
     sessionId: body.sessionId ? clean(body.sessionId, 128) : null,
     name: clean(body.name, 100),
     email: clean(body.email, 160).toLowerCase(),
+    entityType: (["individual","company","public_sector","nonprofit","other"].includes(String(body.entityType || "")) ? String(body.entityType) : "company") as LeadIntake["entityType"],
     company: clean(body.company, 140),
     website: body.website ? clean(body.website, 240) : null,
     offer: clean(body.offer, 1600),
@@ -60,6 +61,7 @@ function validateLead(body: LeadIntake): LeadIntake | null {
     lead.idempotencyKey.length < 8 ||
     lead.name.length < 2 ||
     !EMAIL_RE.test(lead.email) ||
+    !["individual","company","public_sector","nonprofit","other"].includes(lead.entityType) ||
     lead.company.length < 2 ||
     [lead.offer, lead.market, lead.problem, lead.outcome].some((part) => part.length < 10)
   ) return null;
