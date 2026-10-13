@@ -84,6 +84,7 @@ export interface LeadIntake {
   sessionId?: string | null;
   name: string;
   email: string;
+  entityType: "individual" | "company" | "public_sector" | "nonprofit" | "other";
   company: string;
   website?: string | null;
   offer: string;
@@ -106,6 +107,7 @@ export type ResearchStage =
   | "market_channels"
   | "buyers_icp"
   | "target_accounts"
+  | "commercial_capacity"
   | "scoring"
   | "dossier"
   | "notify";
@@ -156,6 +158,22 @@ export interface CompanyProfile {
   proofPoints: string[];
   risks: string[];
   sources: string[];
+}
+
+
+export interface CommercialCapacityProfile {
+  entityType: "individual" | "solo_business" | "startup" | "small_business" | "mid_market" | "enterprise" | "public_sector" | "nonprofit" | "unknown";
+  employeeBand: "1" | "2-10" | "11-50" | "51-250" | "251-1000" | "1001+" | "unknown";
+  revenueBand: "pre_revenue" | "under_500k" | "500k-2m" | "2m-10m" | "10m-50m" | "50m-250m" | "250m+" | "unknown";
+  fundingBand: "none_visible" | "under_1m" | "1m-5m" | "5m-25m" | "25m+" | "unknown";
+  procurementComplexity: "low" | "medium" | "high";
+  confidence: number;
+  recommendedOffer: "starter_signal" | "growth_snapshot" | "growth_snapshot_plus" | "enterprise_intelligence";
+  priceFloorGbp: number;
+  targetPriceGbp: number;
+  priceCeilingGbp: number;
+  pricingRationale: string[];
+  evidenceUrls: string[];
 }
 
 export interface CompetitorAnalysis {
