@@ -2,6 +2,7 @@ import type {
   BuyerRole,
   ChannelRecommendation,
   CompanyProfile,
+  CommercialCapacityProfile,
   CompetitorAnalysis,
   Dossier,
   Env,
@@ -27,6 +28,7 @@ const STAGES: ResearchStage[] = [
   "market_channels",
   "buyers_icp",
   "target_accounts",
+  "commercial_capacity",
   "scoring",
   "dossier",
   "notify"
@@ -310,6 +312,106 @@ async function targetAccountsStage(env: Env, lead: LeadRow): Promise<void> {
   )));
 }
 
+async function commercialCapacityStage(env: Env, lead: LeadRow): Promise<void> {
+  const groups = await searchMany(env, [
+    `"${lead.company}" employees company size`,
+    `"${lead.company}" revenue turnover annual report`,
+    `"${lead.company}" funding investment raised`,
+    `"${lead.company}" Companies House`
+  ], 6);
+
+  const evidence: EvidenceItem[] = [];
+  for (const group of groups) for (const result of group.results) evidence.push({
+    sourceUrl: result.url,
+    title: result.title,
+    snippet: result.snippet,
+    sourceType: "search",
+    query: group.query,
+    capturedAt: isoNow()
+  });
+  await saveEvidence(env, lead.lead_id, "commercial_capacity", evidence);
+
+  const isIndividual = lead.entity_type === "individual";
+  const fallback: CommercialCapacityProfile = {
+    entityType: isIndividual ? "individual" : "unknown",
+    employeeBand: isIndividual ? "1" : "unknown",
+    revenueBand: "unknown",
+    fundingBand: "unknown",
+    procurementComplexity: isIndividual ? "low" : "medium",
+    confidence: evidence.length ? 35 : 15,
+    recommendedOffer: isIndividual ? "starter_signal" : "growth_snapshot",
+    priceFloorGbp: isIndividual ? 500 : 1500,
+    targetPriceGbp: isIndividual ? 750 : 2250,
+    priceCeilingGbp: isIndividual ? 1250 : 3000,
+    pricingRationale: ["Use a scope-appropriate package until stronger public business evidence is available."],
+    evidenceUrls: evidence.map((e)=>e.sourceUrl).slice(0,20)
+  };
+
+  const output = await aiJson<CommercialCapacityProfile>(
+    env,
+    "You are a B2B commercial qualification analyst. Use only supplied public business evidence. Do not infer personal wealth, household finances, creditworthiness or sensitive personal attributes. Recommend pricing only by organisation type, size, likely scope, procurement complexity and service depth. Where evidence is weak, return unknown rather than guessing.",
+    `ENQUIRY
+Declared entity type: ${lead.entity_type}
+Organisation: ${lead.company}
+Domain: ${lead.domain || "none"}
+Requested outcome: ${lead.outcome}
+
+PUBLIC BUSINESS EVIDENCE
+${evidencePrompt(evidence.map((e)=>({title:e.title,url:e.sourceUrl,snippet:e.snippet})))}
+
+Return:
+entityType individual|solo_business|startup|small_business|mid_market|enterprise|public_sector|nonprofit|unknown;
+employeeBand 1|2-10|11-50|51-250|251-1000|1001+|unknown;
+revenueBand pre_revenue|under_500k|500k-2m|2m-10m|10m-50m|50m-250m|250m+|unknown;
+fundingBand none_visible|under_1m|1m-5m|5m-25m|25m+|unknown;
+procurementComplexity low|medium|high;
+confidence 0-100;
+recommendedOffer starter_signal|growth_snapshot|growth_snapshot_plus|enterprise_intelligence;
+priceFloorGbp, targetPriceGbp, priceCeilingGbp;
+pricingRationale[];
+evidenceUrls[] supplied URLs only.
+
+Commercial guardrails:
+- individual / solo: usually £500-£1,250 for a narrow scope;
+- startup / micro: usually £1,000-£3,000;
+- established small business: usually £2,500-£6,000;
+- mid-market: usually £5,000-£12,000;
+- enterprise or complex procurement: usually £10,000-£25,000+.
+A higher price must correspond to broader scope, more research, more stakeholders, more evidence or more support, not simply apparent financial strength.`,
+    fallback,
+    1800
+  );
+
+  const clamp=(n:number,min:number,max:number)=>Math.max(min,Math.min(max,Math.round(Number(n)||0)));
+  const floor=clamp(output.priceFloorGbp,250,50000);
+  const target=clamp(output.targetPriceGbp,floor,75000);
+  const ceiling=clamp(output.priceCeilingGbp,target,100000);
+
+  await env.DB.prepare(
+    `INSERT INTO commercial_capacity_profiles (
+      lead_id, entity_type, employee_band, revenue_band, funding_band,
+      procurement_complexity, confidence, recommended_offer,
+      price_floor_gbp, target_price_gbp, price_ceiling_gbp,
+      pricing_rationale_json, evidence_urls_json, generated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(lead_id) DO UPDATE SET
+      entity_type=excluded.entity_type, employee_band=excluded.employee_band,
+      revenue_band=excluded.revenue_band, funding_band=excluded.funding_band,
+      procurement_complexity=excluded.procurement_complexity,
+      confidence=excluded.confidence, recommended_offer=excluded.recommended_offer,
+      price_floor_gbp=excluded.price_floor_gbp, target_price_gbp=excluded.target_price_gbp,
+      price_ceiling_gbp=excluded.price_ceiling_gbp,
+      pricing_rationale_json=excluded.pricing_rationale_json,
+      evidence_urls_json=excluded.evidence_urls_json, generated_at=excluded.generated_at`
+  ).bind(
+    lead.lead_id, output.entityType, output.employeeBand, output.revenueBand,
+    output.fundingBand, output.procurementComplexity, clamp(output.confidence,0,100),
+    output.recommendedOffer, floor, target, ceiling,
+    JSON.stringify(output.pricingRationale || []),
+    JSON.stringify(output.evidenceUrls || []), isoNow()
+  ).run();
+}
+
 async function scoringStage(env: Env, lead: LeadRow): Promise<void> {
   const intent = lead.visitor_id ? await getIntentContext(env, lead.visitor_id) : null;
   const profile = await env.DB.prepare("SELECT * FROM company_profiles WHERE lead_id = ?").bind(lead.lead_id).first<any>();
@@ -357,13 +459,14 @@ async function scoringStage(env: Env, lead: LeadRow): Promise<void> {
 }
 
 async function dossierStage(env: Env, lead: LeadRow): Promise<void> {
-  const [profile, competitors, channels, buyers, accounts, score] = await Promise.all([
+  const [profile, competitors, channels, buyers, accounts, score, capacity] = await Promise.all([
     env.DB.prepare("SELECT * FROM company_profiles WHERE lead_id = ?").bind(lead.lead_id).first(),
     env.DB.prepare("SELECT * FROM competitors WHERE lead_id = ? LIMIT 10").bind(lead.lead_id).all(),
     env.DB.prepare("SELECT * FROM channel_recommendations WHERE lead_id = ?").bind(lead.lead_id).all(),
     env.DB.prepare("SELECT * FROM buyer_roles WHERE lead_id = ?").bind(lead.lead_id).all(),
     env.DB.prepare("SELECT * FROM target_accounts WHERE lead_id = ? LIMIT 20").bind(lead.lead_id).all(),
-    env.DB.prepare("SELECT * FROM lead_scores WHERE lead_id = ?").bind(lead.lead_id).first()
+    env.DB.prepare("SELECT * FROM lead_scores WHERE lead_id = ?").bind(lead.lead_id).first(),
+    env.DB.prepare("SELECT * FROM commercial_capacity_profiles WHERE lead_id = ?").bind(lead.lead_id).first()
   ]);
 
   const fallback: Dossier = {
@@ -388,7 +491,7 @@ async function dossierStage(env: Env, lead: LeadRow): Promise<void> {
     "You are ClientMotive's senior commercial strategist. Synthesize the structured research into a decision-ready opportunity dossier. Be concise, commercial and explicit about uncertainty. Never invent outcomes, client proof or facts.",
     `ORIGINAL BRIEF\n${JSON.stringify({
       company: lead.company, offer: lead.offer, market: lead.market, problem: lead.problem, outcome: lead.outcome
-    })}\n\nCOMPANY PROFILE\n${JSON.stringify(profile || {})}\n\nCOMPETITORS\n${JSON.stringify(competitors.results)}\n\nCHANNELS\n${JSON.stringify(channels.results)}\n\nBUYERS\n${JSON.stringify(buyers.results)}\n\nTARGET ACCOUNTS\n${JSON.stringify(accounts.results)}\n\nSCORE\n${JSON.stringify(score || {})}\n\nReturn executiveSummary, opportunityThesis, whatWeKnow[], competitiveSummary, channelSummary, buyerSummary, recommendedFirstMove, nextBestActions[{action,owner clientmotive|prospect,priority now|next|later,reason}], prospectSnapshot{headline,observations[]}. The prospectSnapshot must be useful but must not expose internal scoring or unsupported conclusions.`,
+    })}\n\nCOMPANY PROFILE\n${JSON.stringify(profile || {})}\n\nCOMPETITORS\n${JSON.stringify(competitors.results)}\n\nCHANNELS\n${JSON.stringify(channels.results)}\n\nBUYERS\n${JSON.stringify(buyers.results)}\n\nTARGET ACCOUNTS\n${JSON.stringify(accounts.results)}\n\nSCORE\n${JSON.stringify(score || {})}\n\nCOMMERCIAL CAPACITY\n${JSON.stringify(capacity || {})}\n\nReturn executiveSummary, opportunityThesis, whatWeKnow[], competitiveSummary, channelSummary, buyerSummary, recommendedFirstMove, nextBestActions[{action,owner clientmotive|prospect,priority now|next|later,reason}], prospectSnapshot{headline,observations[]}. The prospectSnapshot must be useful but must not expose internal scoring or unsupported conclusions.`,
     fallback,
     1800
   );
@@ -450,6 +553,7 @@ export async function processResearchMessage(env: Env, message: ResearchMessage)
       case "market_channels": await channelStage(env, lead); break;
       case "buyers_icp": await buyersStage(env, lead); break;
       case "target_accounts": await targetAccountsStage(env, lead); break;
+      case "commercial_capacity": await commercialCapacityStage(env, lead); break;
       case "scoring": await scoringStage(env, lead); break;
       case "dossier": await dossierStage(env, lead); break;
       case "notify": await notifyStage(env, lead); break;
