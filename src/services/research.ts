@@ -272,8 +272,13 @@ async function targetAccountsStage(env: Env, lead: LeadRow): Promise<void> {
   const groups = await searchMany(env, [
     `${lead.market} companies UK`,
     `${lead.market} companies hiring expansion`,
-    `${lead.market} directory companies`
-  ], 10);
+    `${lead.market} directory companies`,
+    `${lead.market} fastest growing companies`,
+    `${lead.market} companies funding expansion`,
+    `${lead.market} companies new offices product launches`,
+    `${lead.market} industry association member companies`,
+    `${lead.market} top companies decision makers`
+  ], 15);
   const evidence: EvidenceItem[] = [];
   for (const group of groups) for (const result of group.results) evidence.push({
     sourceUrl: result.url,
@@ -287,11 +292,12 @@ async function targetAccountsStage(env: Env, lead: LeadRow): Promise<void> {
   const output = await aiJson<{ accounts: TargetAccount[] }>(
     env,
     "You are an account research analyst. Only recommend named companies that appear in the supplied evidence. Never invent target accounts. Prefer relevance over list size.",
-    `MARKET: ${lead.market}\nOFFER: ${lead.offer}\nBUYER ROLES: ${JSON.stringify(buyers.results)}\n\nSEARCH EVIDENCE\n${evidencePrompt(evidence.map((e) => ({ title: e.title, url: e.sourceUrl, snippet: e.snippet })))}\n\nReturn {"accounts":[...]} with company, website|null, rationale, triggers[], likelyBuyerRoles[], sourceUrls[]. Keep at most 20; every named account must have at least one source URL.`,
-    { accounts: [] }
+    `MARKET: ${lead.market}\nOFFER: ${lead.offer}\nBUYER ROLES: ${JSON.stringify(buyers.results)}\n\nSEARCH EVIDENCE\n${evidencePrompt(evidence.map((e) => ({ title: e.title, url: e.sourceUrl, snippet: e.snippet })))}\n\nReturn {"accounts":[...]} with company, website|null, rationale, triggers[], likelyBuyerRoles[], sourceUrls[]. Keep at most 50; every named account must have at least one source URL. Rank the strongest opportunities first and aim for 50 only when the evidence supports 50 distinct companies.`,
+    { accounts: [] },
+    5200
   );
   await env.DB.prepare("DELETE FROM target_accounts WHERE lead_id = ?").bind(lead.lead_id).run();
-  const rows = (output.accounts || []).filter((a) => a.sourceUrls?.length).slice(0, 20);
+  const rows = (output.accounts || []).filter((a) => a.sourceUrls?.length).slice(0, 50);
   if (rows.length) await env.DB.batch(rows.map((item) => env.DB.prepare(
     `INSERT INTO target_accounts (
       account_id, lead_id, company, website, rationale, triggers_json,
