@@ -75,10 +75,10 @@ async function pptx(content:any){
   for(const [i,section] of contentSections(content).entries()){
     const slide=presentation.addSlide();
     slide.background={color:i===0?"0B1736":"FFFFFF"};
-    slide.addText(section.title,{x:0.6,y:0.55,width:12.1,height:0.65,fontFace:"Aptos",fontSize:i===0?28:24,bold:true,color:i===0?"FFFFFF":"0B1736",margin:0});
+    slide.addText(section.title,{x:0.6,y:0.55,w:12.1,h:0.65,fontFace:"Aptos",fontSize:i===0?28:24,bold:true,color:i===0?"FFFFFF":"0B1736",margin:0});
     const lines=safe(section.body).split("\n").filter(Boolean).slice(0,18).map(t=>({text:t,options:{bullet:{indent:14},hanging:3,breakLine:true}}));
-    if(lines.length) slide.addText(lines as any,{x:0.75,y:1.5,width:11.8,height:5.3,fontFace:"Aptos",fontSize:14,color:i===0?"DDE7F5":"33445C",breakLine:false,margin:0.05,valign:"top"});
-    slide.addText("ClientMotive · Evidence-led commercial intelligence",{x:0.75,y:7.05,width:5,height:0.2,fontFace:"Aptos",fontSize:7,color:i===0?"9FB4D1":"71839A",margin:0});
+    if(lines.length) slide.addText(lines as any,{x:0.75,y:1.5,w:11.8,h:5.3,fontFace:"Aptos",fontSize:14,color:i===0?"DDE7F5":"33445C",breakLine:false,margin:0.05,valign:"top"});
+    slide.addText("ClientMotive · Evidence-led commercial intelligence",{x:0.75,y:7.05,w:5,h:0.2,fontFace:"Aptos",fontSize:7,color:i===0?"9FB4D1":"71839A",margin:0});
   }
   const out=await (presentation as any).write({outputType:"arraybuffer"});
   return new Uint8Array(out as ArrayBuffer);
@@ -140,7 +140,7 @@ export async function renderProspectTeaserPdf(input:{
   };
   const card=(page:any,y:number,index:string,heading:string,body:string)=>{
     const h=116;
-    page.drawRectangle({x:46,y:y-h,width:503,h,color:pale,borderColor:line,borderWidth:0.7});
+    page.drawRectangle({x:46,y:y-h,width:503,height:h,color:pale,borderColor:line,borderWidth:0.7});
     page.drawText(index,{x:62,y:y-29,size:10,font:bold,color:blue});
     page.drawText(heading.slice(0,66),{x:96,y:y-29,size:14.5,font:bold,color:ink});
     let yy=y-55;
