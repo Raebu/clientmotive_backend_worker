@@ -7,6 +7,7 @@ export interface LeadRow {
   session_id: string | null;
   name: string;
   email: string;
+  entity_type: string;
   email_domain: string | null;
   company: string;
   website: string | null;
@@ -49,10 +50,10 @@ export async function createLead(
   await env.DB.prepare(
     `INSERT INTO leads (
       lead_id, idempotency_key, visitor_id, session_id, name, email, email_domain,
-      company, website, domain, offer, market, problem, outcome, source_path,
+      entity_type, company, website, domain, offer, market, problem, outcome, source_path,
       source, utm_json, consent_json, status, research_status, public_token_hash,
       created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'queued', ?, ?, ?)`
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'new', 'queued', ?, ?, ?)`
   ).bind(
     leadId,
     intake.idempotencyKey,
@@ -61,6 +62,7 @@ export async function createLead(
     intake.name,
     intake.email.toLowerCase(),
     emailDomain,
+    intake.entityType,
     intake.company,
     intake.website || null,
     domain,
