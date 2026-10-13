@@ -171,7 +171,7 @@ export async function markJob(
 export async function getLeadBundle(env: Env, leadId: string): Promise<Record<string, unknown>> {
   const lead = await getLead(env, leadId);
   if (!lead) throw new Error("lead_not_found");
-  const [profile, score, dossier, competitors, buyers, channels, accounts, actions] = await Promise.all([
+  const [profile, score, dossier, competitors, buyers, channels, accounts, actions, capacity] = await Promise.all([
     env.DB.prepare("SELECT * FROM company_profiles WHERE lead_id = ?").bind(leadId).first(),
     env.DB.prepare("SELECT * FROM lead_scores WHERE lead_id = ?").bind(leadId).first(),
     env.DB.prepare("SELECT * FROM dossiers WHERE lead_id = ?").bind(leadId).first(),
@@ -179,7 +179,8 @@ export async function getLeadBundle(env: Env, leadId: string): Promise<Record<st
     env.DB.prepare("SELECT * FROM buyer_roles WHERE lead_id = ? ORDER BY role_type, role").bind(leadId).all(),
     env.DB.prepare("SELECT * FROM channel_recommendations WHERE lead_id = ? ORDER BY CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END").bind(leadId).all(),
     env.DB.prepare("SELECT * FROM target_accounts WHERE lead_id = ? LIMIT 50").bind(leadId).all(),
-    env.DB.prepare("SELECT * FROM next_actions WHERE lead_id = ? ORDER BY CASE priority WHEN 'now' THEN 1 WHEN 'next' THEN 2 ELSE 3 END").bind(leadId).all()
+    env.DB.prepare("SELECT * FROM next_actions WHERE lead_id = ? ORDER BY CASE priority WHEN 'now' THEN 1 WHEN 'next' THEN 2 ELSE 3 END").bind(leadId).all(),
+    env.DB.prepare("SELECT * FROM commercial_capacity_profiles WHERE lead_id = ?").bind(leadId).first()
   ]);
   const safeLead = { ...lead } as Record<string, unknown>;
   delete safeLead.public_token_hash;
@@ -192,6 +193,7 @@ export async function getLeadBundle(env: Env, leadId: string): Promise<Record<st
     buyers: buyers.results,
     channels: channels.results,
     targetAccounts: accounts.results,
-    nextActions: actions.results
+    nextActions: actions.results,
+    commercialCapacity: capacity
   };
 }
