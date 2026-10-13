@@ -130,7 +130,7 @@ export async function renderProspectTeaserPdf(input:{
     page.drawText(String(pageNo).padStart(2,"0"),{x:526,y:24,size:8.5,font:regular,color:muted});
   };
   const title=(page:any,kicker:string,heading:string,sub?:string)=>{
-    page.drawText(kicker.toUpperCase(),{x:46,y:770,size:9,font:bold,color:blue,characterSpacing:1.5});
+    page.drawText(kicker.toUpperCase(),{x:46,y:770,size:9,font:bold,color:blue});
     let y=718;
     for(const ln of wrap(heading,29).slice(0,3)){
       page.drawText(ln,{x:46,y,size:31,font:bold,color:navy}); y-=37;
@@ -153,7 +153,7 @@ export async function renderProspectTeaserPdf(input:{
     const page=doc.addPage([W,H]);
     page.drawRectangle({x:0,y:0,w:W,h:H,color:white});
     page.drawText("ClientMotive",{x:46,y:786,size:12,font:bold,color:navy});
-    page.drawText("INITIAL COMMERCIAL INTELLIGENCE",{x:46,y:716,size:9,font:bold,color:blue,characterSpacing:1.8});
+    page.drawText("INITIAL COMMERCIAL INTELLIGENCE",{x:46,y:716,size:9,font:bold,color:blue});
     page.drawText("Your growth",{x:46,y:632,size:43,font:bold,color:navy});
     page.drawText("signal.",{x:46,y:582,size:43,font:bold,color:blue});
     const company=String(input.company||"Your business");
@@ -162,7 +162,7 @@ export async function renderProspectTeaserPdf(input:{
       page.drawText(ln,{x:46,y,size:16,font:regular,color:ink});y-=23;
     }
     page.drawRectangle({x:46,y:245,w:503,h:160,color:pale});
-    page.drawText("PREPARED FOR",{x:66,y:372,size:8.5,font:bold,color:muted,characterSpacing:1.3});
+    page.drawText("PREPARED FOR",{x:66,y:372,size:8.5,font:bold,color:muted});
     page.drawText(company.slice(0,48),{x:66,y:329,size:25,font:bold,color:navy});
     page.drawText("Useful now. Deliberately not the whole answer.",{x:66,y:292,size:11.5,font:regular,color:muted});
     page.drawText("The full Growth Snapshot goes deeper when the decision justifies it.",{x:66,y:270,size:10,font:regular,color:muted});
@@ -202,7 +202,7 @@ export async function renderProspectTeaserPdf(input:{
   {
     const page=doc.addPage([W,H]);
     page.drawRectangle({x:0,y:0,w:W,h:H,color:navy});
-    page.drawText("GO DEEPER",{x:46,y:770,size:9,font:bold,color:rgb(0.36,0.65,1),characterSpacing:1.8});
+    page.drawText("GO DEEPER",{x:46,y:770,size:9,font:bold,color:rgb(0.36,0.65,1)});
     page.drawText("Turn the signal",{x:46,y:707,size:35,font:bold,color:white});
     page.drawText("into a decision.",{x:46,y:665,size:35,font:bold,color:rgb(0.36,0.65,1)});
     page.drawText("The full ClientMotive Growth Snapshot includes:",{x:46,y:612,size:13,font:regular,color:rgb(0.82,0.86,0.92)});
@@ -221,7 +221,7 @@ export async function renderProspectTeaserPdf(input:{
       page.drawText(x,{x:82,y:yy,size:12,font:regular,color:white}); yy-=39;
     });
     page.drawRectangle({x:46,y:138,w:503,h:92,color:blue});
-    page.drawText("UNLOCK THE FULL GROWTH SNAPSHOT",{x:67,y:194,size:9,font:bold,color:white,characterSpacing:1.2});
+    page.drawText("UNLOCK THE FULL GROWTH SNAPSHOT",{x:67,y:194,size:9,font:bold,color:white});
     page.drawText("£1,500-£3,000",{x:67,y:160,size:22,font:bold,color:white});
     page.drawText("clientmotive.com/offers/",{x:350,y:165,size:11,font:bold,color:white});
     page.drawText("ClientMotive · Evidence-led commercial intelligence",{x:46,y:32,size:8.5,font:regular,color:rgb(0.55,0.62,0.72)});
