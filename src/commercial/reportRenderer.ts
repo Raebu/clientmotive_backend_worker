@@ -103,3 +103,129 @@ export async function renderDataExport(env:Env,exportId:string,format:ExportForm
   if(format==="html") return {bytes:html(content),contentType:"text/html; charset=utf-8",extension:"html"};
   throw new Error("unsupported_export_format");
 }
+
+export async function renderProspectTeaserPdf(input:{
+  company:string;
+  headline?:string|null;
+  observations?:string[];
+  competitor?:{name?:string;summary?:string;differentiationOpportunity?:string}|null;
+  buyer?:{role?:string;pain?:string;trigger?:string;messageAngle?:string}|null;
+  channel?:{channel?:string;why?:string;firstExperiment?:string}|null;
+}){
+  const doc=await PDFDocument.create();
+  const regular=await doc.embedFont(StandardFonts.Helvetica);
+  const bold=await doc.embedFont(StandardFonts.HelveticaBold);
+  const blue=rgb(0.02,0.39,0.95);
+  const navy=rgb(0.04,0.07,0.14);
+  const ink=rgb(0.10,0.13,0.18);
+  const muted=rgb(0.42,0.46,0.53);
+  const pale=rgb(0.965,0.973,0.985);
+  const line=rgb(0.89,0.91,0.94);
+  const white=rgb(1,1,1);
+  const W=595, H=842;
+
+  const footer=(page:any,pageNo:number)=>{
+    page.drawLine({start:{x:46,y:42},end:{x:549,y:42},thickness:0.6,color:line});
+    page.drawText("ClientMotive",{x:46,y:24,size:8.5,font:bold,color:muted});
+    page.drawText(String(pageNo).padStart(2,"0"),{x:526,y:24,size:8.5,font:regular,color:muted});
+  };
+  const title=(page:any,kicker:string,heading:string,sub?:string)=>{
+    page.drawText(kicker.toUpperCase(),{x:46,y:770,size:9,font:bold,color:blue});
+    let y=718;
+    for(const ln of wrap(heading,29).slice(0,3)){
+      page.drawText(ln,{x:46,y,size:31,font:bold,color:navy}); y-=37;
+    }
+    if(sub){y-=4;for(const ln of wrap(sub,67).slice(0,4)){page.drawText(ln,{x:46,y,size:12.5,font:regular,color:muted});y-=18;}}
+    return y;
+  };
+  const card=(page:any,y:number,index:string,heading:string,body:string)=>{
+    const h=116;
+    page.drawRectangle({x:46,y:y-h,width:503,height:h,color:pale,borderColor:line,borderWidth:0.7});
+    page.drawText(index,{x:62,y:y-29,size:10,font:bold,color:blue});
+    page.drawText(heading.slice(0,66),{x:96,y:y-29,size:14.5,font:bold,color:ink});
+    let yy=y-55;
+    for(const ln of wrap(body,69).slice(0,4)){page.drawText(ln,{x:96,y:yy,size:10.5,font:regular,color:muted});yy-=15;}
+    return y-h-14;
+  };
+
+  // Cover
+  {
+    const page=doc.addPage([W,H]);
+    page.drawRectangle({x:0,y:0,width:W,height:H,color:white});
+    page.drawText("ClientMotive",{x:46,y:786,size:12,font:bold,color:navy});
+    page.drawText("INITIAL COMMERCIAL INTELLIGENCE",{x:46,y:716,size:9,font:bold,color:blue});
+    page.drawText("Your growth",{x:46,y:632,size:43,font:bold,color:navy});
+    page.drawText("signal.",{x:46,y:582,size:43,font:bold,color:blue});
+    const company=String(input.company||"Your business");
+    let y=512;
+    for(const ln of wrap(input.headline||"A focused first look at where the commercial opportunity may be.",54).slice(0,4)){
+      page.drawText(ln,{x:46,y,size:16,font:regular,color:ink});y-=23;
+    }
+    page.drawRectangle({x:46,y:245,width:503,height:160,color:pale});
+    page.drawText("PREPARED FOR",{x:66,y:372,size:8.5,font:bold,color:muted});
+    page.drawText(company.slice(0,48),{x:66,y:329,size:25,font:bold,color:navy});
+    page.drawText("Useful now. Deliberately not the whole answer.",{x:66,y:292,size:11.5,font:regular,color:muted});
+    page.drawText("The full Growth Snapshot goes deeper when the decision justifies it.",{x:66,y:270,size:10,font:regular,color:muted});
+    footer(page,1);
+  }
+
+  // Observations
+  {
+    const page=doc.addPage([W,H]);
+    let y=title(page,"What we see","Three things worth your attention.","A useful first cut from the evidence collected so far - enough to sharpen the next decision without giving away the full analysis.");
+    y-=28;
+    const obs=(input.observations||[]).filter(Boolean).slice(0,3);
+    const fallbacks=[
+      "There is enough signal in the brief and public evidence to justify a deeper commercial review.",
+      "The strongest opportunity will come from prioritisation, not from simply adding more contacts or activity.",
+      "The next step should test where timing, buyer need and competitive whitespace overlap."
+    ];
+    for(let i=0;i<3;i++) y=card(page,y,"0"+(i+1),i===0?"Priority signal":i===1?"Commercial implication":"Next decision",obs[i]||fallbacks[i]!);
+    footer(page,2);
+  }
+
+  // Sample intelligence
+  {
+    const page=doc.addPage([W,H]);
+    let y=title(page,"A useful first cut","A glimpse of the deeper intelligence.","The complete report expands each of these areas with evidence, alternatives, confidence and recommended action.");
+    y-=25;
+    const comp=input.competitor;
+    y=card(page,y,"01","Competitive angle",comp?.name ? (comp.name+": "+(comp.differentiationOpportunity||comp.summary||"A relevant alternative worth testing against your position.")) : "A relevant competitive or status-quo alternative has been identified for deeper comparison.");
+    const buyer=input.buyer;
+    y=card(page,y,"02","Buyer lens",buyer?.role ? (buyer.role+": "+(buyer.pain||buyer.trigger||buyer.messageAngle||"A likely role in the buying decision.")) : "A likely buying role has been mapped, including the problem and trigger most likely to matter.");
+    const ch=input.channel;
+    y=card(page,y,"03","Where to test",ch?.channel ? (ch.channel+": "+(ch.firstExperiment||ch.why||"A channel worth testing first.")) : "A priority route to market has been identified for a focused first experiment.");
+    footer(page,3);
+  }
+
+  // Upgrade
+  {
+    const page=doc.addPage([W,H]);
+    page.drawRectangle({x:0,y:0,width:W,height:H,color:navy});
+    page.drawText("GO DEEPER",{x:46,y:770,size:9,font:bold,color:rgb(0.36,0.65,1)});
+    page.drawText("Turn the signal",{x:46,y:707,size:35,font:bold,color:white});
+    page.drawText("into a decision.",{x:46,y:665,size:35,font:bold,color:rgb(0.36,0.65,1)});
+    page.drawText("The full ClientMotive Growth Snapshot includes:",{x:46,y:612,size:13,font:regular,color:rgb(0.82,0.86,0.92)});
+    const unlock=[
+      "Full company and market intelligence",
+      "Competitor and alternative landscape",
+      "ICP, target-account and buying-committee analysis",
+      "Marketing and positioning intelligence",
+      "Signals, risks and opportunity hypotheses",
+      "Evidence, confidence and source trail",
+      "Executive scorecard and 90-day action plan"
+    ];
+    let yy=568;
+    unlock.forEach((x,i)=>{
+      page.drawText("0"+(i+1),{x:46,y:yy,size:9,font:bold,color:rgb(0.36,0.65,1)});
+      page.drawText(x,{x:82,y:yy,size:12,font:regular,color:white}); yy-=39;
+    });
+    page.drawRectangle({x:46,y:138,width:503,height:92,color:blue});
+    page.drawText("UNLOCK THE FULL GROWTH SNAPSHOT",{x:67,y:194,size:9,font:bold,color:white});
+    page.drawText("£1,500-£3,000",{x:67,y:160,size:22,font:bold,color:white});
+    page.drawText("clientmotive.com/offers/",{x:350,y:165,size:11,font:bold,color:white});
+    page.drawText("ClientMotive · Evidence-led commercial intelligence",{x:46,y:32,size:8.5,font:regular,color:rgb(0.55,0.62,0.72)});
+  }
+
+  return new Uint8Array(await doc.save());
+}
