@@ -274,7 +274,7 @@ async function prospectSnapshot(request: Request, env: Env, leadId: string): Pro
     env.DB.prepare("SELECT COUNT(*) AS count FROM target_accounts WHERE lead_id=?").bind(leadId).first<any>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM competitors WHERE lead_id=?").bind(leadId).first<any>(),
     env.DB.prepare("SELECT COUNT(*) AS count FROM buyer_roles WHERE lead_id=?").bind(leadId).first<any>(),
-    env.DB.prepare("SELECT COUNT(*) AS count FROM commercial_signals WHERE lead_id=?").bind(leadId).first<any>().catch(()=>({count:0}))
+    env.DB.prepare("SELECT COUNT(*) AS count FROM commercial_signals s JOIN commercial_accounts a ON a.account_id=s.account_id WHERE a.lead_id=?").bind(leadId).first<any>().catch(()=>({count:0}))
   ]);
 
   const dossierJson = dossier ? JSON.parse(dossier.dossier_json || "{}") : {};
